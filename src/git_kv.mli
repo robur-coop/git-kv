@@ -10,7 +10,8 @@ val connect : Mimic.ctx -> string -> t Lwt.t
 
 val to_octets : t -> string Lwt.t
 
-val of_octets : string -> (t, [`Msg of string]) result Lwt.t
+val of_octets : Mimic.ctx -> remote:string -> string ->
+  (t, [`Msg of string]) result Lwt.t
 
 type change = [
   | `Add of key

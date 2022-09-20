@@ -5,6 +5,9 @@ module Search = Git.Search.Make(Digestif.SHA1)(Store)
 module Git_commit = Git.Commit.Make(Store.Hash)
 
 type t = {
+  ctx : Mimic.ctx ;
+  edn : Smart_git.Endpoint.t;
+  branch : Git.Reference.t ;
   store : Store.t ;
   mutable head : Store.hash option ;
 }
@@ -33,28 +36,48 @@ let split_url s =
   | _ ->
     Smart_git.Endpoint.of_string s |> to_invalid, main
 
+let pull t =
+  let open Lwt.Infix in
+  Sync.fetch ~capabilities ~ctx:t.ctx t.edn t.store ~deepen:(`Depth 1) `All >>= fun r ->
+  let data =
+    Result.map_error
+      (fun e -> `Msg (Fmt.str "error fetching: %a" Sync.pp_error e))
+      r
+  in
+  match data with
+  | Error _ as e -> Lwt.return e
+  | Ok None -> Lwt.return (Ok [])
+  | Ok Some (_, _) ->
+    Store.Ref.resolve t.store t.branch >>= fun r ->
+    let head =
+      Result.map_error
+        (fun e -> `Msg (Fmt.str "error resolving branch %s: %a"
+                          (Git.Reference.to_string t.branch)
+                          Store.pp_error e))
+        r |> to_invalid
+    in
+    t.head <- Some head;
+    Lwt.return (Ok [])
+
 let connect ctx endpoint =
   let open Lwt.Infix in
   init_store () >>= fun store ->
   let store = to_invalid store in
   let edn, branch = split_url endpoint in
-  Sync.fetch ~capabilities ~ctx edn store ~deepen:(`Depth 1) `All >>= fun r ->
-  let data =
-    Result.map_error
-      (fun e -> `Msg (Fmt.str "error fetching: %a" Sync.pp_error e))
-      r |> to_invalid
-  in
-  match data with
-  | None -> Lwt.return { store ; head = None }
-  | Some (_, _) ->
-    Store.Ref.resolve store branch >>= fun r ->
-    let head =
-      Result.map_error
-        (fun e -> `Msg (Fmt.str "error resolving branch %s: %a"
-                          (Git.Reference.to_string branch) Store.pp_error e))
-        r |> to_invalid
-    in
-    Lwt.return { store ; head = Some head }
+  let t = { ctx ; edn ; branch ; store ; head = None } in
+  pull t >>= fun r ->
+  let _r = to_invalid r in
+  Lwt.return t
+
+type key = Mirage_kv.Key.t
+
+type change = [
+  | `Add of key
+  | `Remove of key
+  | `Change of key
+]
+
+let pull _ = assert false
 
 type error = Mirage_kv.error
 
@@ -63,6 +86,7 @@ let pp_error ppf = Mirage_kv.pp_error ppf
 let disconnect _t = Lwt.return_unit
 
 let to_octets t =
+  (* TODO maybe preserve edn and branch as well? *)
   let open Lwt.Infix in
   match t.head with
   | None -> Lwt.return ""
@@ -73,7 +97,8 @@ let to_octets t =
       Encore.Lavoisier.emit_string c l
     | _ -> assert false
 
-let of_octets data =
+let of_octets ctx ~remote data =
+  (* TODO maybe recover edn and branch from data as well? *)
   let open Lwt_result.Infix in
   let l = Encore.to_angstrom Git_commit.format in
   Lwt.return
@@ -81,9 +106,8 @@ let of_octets data =
        (Angstrom.parse_string ~consume:All l data)) >>= fun head ->
   let head = Git_commit.tree head in
   init_store () >|= fun store ->
-  { store ; head = Some head }
-
-type key = Mirage_kv.Key.t
+  let edn, branch = split_url remote in
+  { ctx ; edn ; branch ; store ; head = Some head }
 
 let exists _t _key =
   (*  Search.find t.store t.head (`Path (Mirage_kv.Key.segments key)) >>= function *)
@@ -115,12 +139,36 @@ let list _t _key =
   (* ((string * [`Value | `Dictionary]) list, error) result Lwt.t *)
   assert false
 
-let last_modified _t _key =
-  (* (int * int64, error) result Lwt.t *)
-  assert false
+let last_modified t key =
+  let open Lwt.Infix in
+  Option.fold
+    ~none:(Lwt.return (Error (`Not_found key)))
+    ~some:(fun head ->
+        Store.read_exn t.store head >|= function
+        | Commit c ->
+          let author = Git_commit.author c in
+          let secs, tz_offset = author.Git.User.date in
+          let secs =
+            Option.fold ~none:secs
+              ~some:(fun { Git.User.sign ; hours ; minutes } ->
+                  let tz_off = Int64.(mul (add (mul (of_int hours) 60L) (of_int minutes)) 60L) in
+                  match sign with
+                  | `Plus -> Int64.(sub secs tz_off)
+                  | `Minus -> Int64.(add secs tz_off))
+              tz_offset
+          in
+          let ts =
+            Option.fold ~none:Ptime.epoch ~some:Fun.id (Ptime.of_float_s (Int64.to_float secs))
+          in
+          Ok (Ptime.(Span.to_d_ps (to_span ts)))
+        | _ -> assert false)
+    t.head
 
-let digest t _key =
-  Lwt.return (Ok (Option.fold ~none:"0" ~some:Store.Hash.to_hex t.head))
+let digest t key =
+  Option.fold
+    ~none:(Error (`Not_found key))
+    ~some:(fun x -> Ok (Store.Hash.to_hex x))
+    t.head |> Lwt.return
 
 let size t key =
   let open Lwt_result.Infix in
