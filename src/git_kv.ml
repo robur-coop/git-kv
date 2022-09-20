@@ -64,12 +64,14 @@ let disconnect _t = Lwt.return_unit
 
 let to_octets t =
   let open Lwt.Infix in
-  let head = Option.get t.head in
-  Store.read_exn t.store head >|= function
-  | Commit c ->
-    let l = Encore.to_lavoisier Git_commit.format in
-    Encore.Lavoisier.emit_string c l
-  | _ -> assert false
+  match t.head with
+  | None -> Lwt.return ""
+  | Some head ->
+    Store.read_exn t.store head >|= function
+    | Commit c ->
+      let l = Encore.to_lavoisier Git_commit.format in
+      Encore.Lavoisier.emit_string c l
+    | _ -> assert false
 
 let of_octets data =
   let open Lwt_result.Infix in
@@ -90,13 +92,15 @@ let exists _t _key =
 
 let get t key =
   let open Lwt.Infix in
-  let head = Option.get t.head in
-  Search.find t.store head (`Path (Mirage_kv.Key.segments key)) >>= function
+  match t.head with
   | None -> Lwt.return (Error (`Not_found key))
-  | Some blob ->
-    Store.read_exn t.store blob >|= function
-    | Blob b -> Ok (Git.Blob.to_string b)
-    | _ -> assert false
+  | Some head ->
+    Search.find t.store head (`Path (Mirage_kv.Key.segments key)) >>= function
+    | None -> Lwt.return (Error (`Not_found key))
+    | Some blob ->
+      Store.read_exn t.store blob >|= function
+      | Blob b -> Ok (Git.Blob.to_string b)
+      | _ -> assert false
 
 let get_partial t key ~offset ~length =
   let open Lwt_result.Infix in
@@ -116,8 +120,7 @@ let last_modified _t _key =
   assert false
 
 let digest t _key =
-  let head = Option.get t.head in
-  Digestif.SHA1.to_hex head
+  Lwt.return (Ok (Option.fold ~none:"0" ~some:Store.Hash.to_hex t.head))
 
 let size t key =
   let open Lwt_result.Infix in
