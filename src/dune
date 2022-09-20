@@ -1,0 +1,4 @@
+(library
+  (name git_kv)
+  (public_name git-kv)
+  (libraries git mirage-kv))
