@@ -11,3 +11,5 @@ val connect : Mimic.ctx -> string -> t Lwt.t
 val to_octets : t -> string Lwt.t
 
 val of_octets : string -> (t, [`Msg of string]) result Lwt.t
+
+val pull : t -> (unit, [ `Msg of string ]) result Lwt.t
