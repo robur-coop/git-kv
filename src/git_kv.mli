@@ -12,4 +12,10 @@ val to_octets : t -> string Lwt.t
 
 val of_octets : string -> (t, [`Msg of string]) result Lwt.t
 
-val pull : t -> (unit, [ `Msg of string ]) result Lwt.t
+type change = [
+  | `Add of key
+  | `Remove of key
+  | `Change of key
+]
+
+val pull : t -> (change list, [ `Msg of string ]) result Lwt.t
