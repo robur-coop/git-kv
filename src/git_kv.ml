@@ -132,7 +132,7 @@ let get t key =
     | Some blob ->
       Store.read_exn t.store blob >|= function
       | Blob b -> Ok (Git.Blob.to_string b)
-      | _ -> assert false
+      | _ -> Error (`Value_expected key)
 
 let get_partial t key ~offset ~length =
   let open Lwt_result.Infix in
