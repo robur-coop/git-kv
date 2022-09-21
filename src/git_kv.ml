@@ -109,10 +109,18 @@ let of_octets ctx ~remote data =
   let edn, branch = split_url remote in
   { ctx ; edn ; branch ; store ; head = Some head }
 
-let exists _t _key =
-  (*  Search.find t.store t.head (`Path (Mirage_kv.Key.segments key)) >>= function *)
-  (* ([`Value | `Dictionary] option, error) result Lwt.t *)
-  assert false
+let exists t key =
+  let open Lwt.Infix in
+  match t.head with
+  | None -> Lwt.return (Ok None)
+  | Some head ->
+    Search.mem t.store head (`Path (Mirage_kv.Key.segments key)) >>= function
+    | false -> Lwt.return (Ok None)
+    | true ->
+      Search.find t.store head (`Path (Mirage_kv.Key.segments key))
+      >|= Option.get >>= Store.read_exn t.store >>= function
+      | Blob _ -> Lwt.return (Ok (Some `Value))
+      | Tree _ | Commit _ | Tag _ -> Lwt.return (Ok (Some `Dictionary))
 
 let get t key =
   let open Lwt.Infix in
