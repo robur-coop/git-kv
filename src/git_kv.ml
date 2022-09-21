@@ -109,10 +109,18 @@ let of_octets ctx ~remote data =
   let edn, branch = split_url remote in
   { ctx ; edn ; branch ; store ; head = Some head }
 
-let exists _t _key =
-  (*  Search.find t.store t.head (`Path (Mirage_kv.Key.segments key)) >>= function *)
-  (* ([`Value | `Dictionary] option, error) result Lwt.t *)
-  assert false
+let exists t key =
+  let open Lwt.Infix in
+  match t.head with
+  | None -> Lwt.return (Ok None)
+  | Some head ->
+    Search.mem t.store head (`Path (Mirage_kv.Key.segments key)) >>= function
+    | false -> Lwt.return (Ok None)
+    | true ->
+      Search.find t.store head (`Path (Mirage_kv.Key.segments key))
+      >|= Option.get >>= Store.read_exn t.store >>= function
+      | Blob _ -> Lwt.return (Ok (Some `Value))
+      | Tree _ | Commit _ | Tag _ -> Lwt.return (Ok (Some `Dictionary))
 
 let get t key =
   let open Lwt.Infix in
@@ -124,7 +132,7 @@ let get t key =
     | Some blob ->
       Store.read_exn t.store blob >|= function
       | Blob b -> Ok (Git.Blob.to_string b)
-      | _ -> assert false
+      | _ -> Error (`Value_expected key)
 
 let get_partial t key ~offset ~length =
   let open Lwt_result.Infix in
@@ -135,9 +143,22 @@ let get_partial t key ~offset ~length =
     let l = min length (String.length data - offset) in
     String.sub data offset l
 
-let list _t _key =
-  (* ((string * [`Value | `Dictionary]) list, error) result Lwt.t *)
-  assert false
+let list t key =
+  let open Lwt.Infix in
+  match t.head with
+  | None -> Lwt.return (Error (`Not_found key))
+  | Some head ->
+    Search.find t.store head (`Path (Mirage_kv.Key.segments key)) >>= function
+    | None -> Lwt.return (Error (`Not_found key))
+    | Some tree ->
+      Store.read_exn t.store tree >>= function
+      | Tree t ->
+        Lwt_list.map_p (fun { Git.Tree.perm; name; _ } -> match perm with
+          | `Commit | `Dir -> Lwt.return (name, `Dictionary)
+          | `Everybody | `Exec | `Normal -> Lwt.return (name, `Value)
+          | `Link -> failwith "Unimplemented link follow")
+        (Store.Value.Tree.to_list t) >|= Result.ok
+      | _ -> Lwt.return (Error (`Dictionary_expected key))
 
 let last_modified t key =
   let open Lwt.Infix in
