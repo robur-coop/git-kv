@@ -36,6 +36,37 @@ let split_url s =
   | _ ->
     Smart_git.Endpoint.of_string s |> to_invalid, main
 
+let fpath_to_key ~root v =
+  Mirage_kv.Key.v (Fpath.to_string (Option.get (Fpath.relativize ~root v)))
+
+let diff store commit0 commit1 =
+  let open Lwt.Infix in
+  let root = Fpath.v "." in
+  let tbl0 = Hashtbl.create 0x10 in
+  Store.fold store (fun () ?name ~length:_ hash _value ->
+    Option.iter (fun name -> Hashtbl.add tbl0 (fpath_to_key ~root name) hash) name ;
+    Lwt.return ()) () ~path:root commit0 >>= fun () ->
+  let tbl1 = Hashtbl.create 0x10 in
+  Store.fold store (fun () ?name ~length:_ hash _value ->
+    Option.iter (fun name -> Hashtbl.add tbl1 (fpath_to_key ~root name) hash) name ;
+    Lwt.return ()) () ~path:root commit1 >>= fun () ->
+  let diff = Hashtbl.fold (fun name hash diff -> match Hashtbl.find_opt tbl1 name with
+    | Some hash' when not (Digestif.SHA1.equal hash hash') -> `Change name :: diff
+    | Some _ -> diff
+    | None -> `Remove name :: diff) tbl0 [] in
+  let diff = Hashtbl.fold (fun name _hash diff ->
+    if Hashtbl.mem tbl0 name
+    then `Add name :: diff else diff) tbl1 diff in
+  Lwt.return diff
+
+let diff store commit0 commit1 = match commit0 with
+  | Some commit0 -> diff store commit0 commit1
+  | None ->
+    let root = Fpath.v "." in
+    Store.fold store (fun diff ?name ~length:_ _hash _value -> match name with
+      | None -> Lwt.return diff
+      | Some name -> Lwt.return (`Add (fpath_to_key ~root name) :: diff)) [] ~path:root commit1
+
 let pull t =
   let open Lwt.Infix in
   Sync.fetch ~capabilities ~ctx:t.ctx t.edn t.store ~deepen:(`Depth 1) `All >>= fun r ->
@@ -56,8 +87,9 @@ let pull t =
                           Store.pp_error e))
         r |> to_invalid
     in
+    diff t.store t.head head >>= fun diff ->
     t.head <- Some head;
-    Lwt.return (Ok [])
+    Lwt.return (Ok diff)
 
 let connect ctx endpoint =
   let open Lwt.Infix in
@@ -76,8 +108,6 @@ type change = [
   | `Remove of key
   | `Change of key
 ]
-
-let pull _ = assert false
 
 type error = Mirage_kv.error
 
