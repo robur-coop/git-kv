@@ -32,7 +32,7 @@ let split_url s =
   match String.split_on_char '#' s with
   | [ edn; branch ] ->
     Smart_git.Endpoint.of_string edn |> to_invalid,
-    Git.Reference.of_string branch |> to_invalid
+    Git.Reference.of_string ("refs/heads/" ^ branch) |> to_invalid
   | _ ->
     Smart_git.Endpoint.of_string s |> to_invalid, main
 
@@ -69,7 +69,7 @@ let diff store commit0 commit1 = match commit0 with
 
 let pull t =
   let open Lwt.Infix in
-  Sync.fetch ~capabilities ~ctx:t.ctx t.edn t.store ~deepen:(`Depth 1) `All >>= fun r ->
+  Sync.fetch ~capabilities ~ctx:t.ctx t.edn t.store ~deepen:(`Depth 1) (`Some [ t.branch, t.branch ]) >>= fun r ->
   let data =
     Result.map_error
       (fun e -> `Msg (Fmt.str "error fetching: %a" Sync.pp_error e))
