@@ -115,6 +115,92 @@ let pp_error ppf = Mirage_kv.pp_error ppf
 
 let disconnect _t = Lwt.return_unit
 
+module SHA1 = struct
+  include Digestif.SHA1
+
+  let hash x = Hashtbl.hash x
+end
+
+module Verbose = struct
+  type 'a fiber = 'a Lwt.t
+
+  let succ _ = Lwt.return_unit
+  let print _ = Lwt.return_unit
+end
+
+module Delta = Carton_lwt.Enc.Delta (SHA1) (Verbose)
+
+let pack t ~commit stream =
+  let open Lwt.Infix in
+  let load t hash =
+    Store.read_inflated t hash >|= function
+    | None -> Fmt.failwith "%a not found" Digestif.SHA1.pp hash
+    | Some (`Commit, cs) -> Carton.Dec.v ~kind:`A (Cstruct.to_bigarray cs)
+    | Some (`Tree,   cs) -> Carton.Dec.v ~kind:`B (Cstruct.to_bigarray cs)
+    | Some (`Blob,   cs) -> Carton.Dec.v ~kind:`C (Cstruct.to_bigarray cs)
+    | Some (`Tag,    cs) -> Carton.Dec.v ~kind:`D (Cstruct.to_bigarray cs) in
+  let to_entry ~length hash = function
+    | Git.Value.Commit _ -> Carton_lwt.Enc.make_entry ~kind:`A ~length hash
+    | Git.Value.Tree _   -> Carton_lwt.Enc.make_entry ~kind:`B ~length hash
+    | Git.Value.Blob _   -> Carton_lwt.Enc.make_entry ~kind:`C ~length hash
+    | Git.Value.Tag _    -> Carton_lwt.Enc.make_entry ~kind:`D ~length hash in
+  Store.fold t (fun acc ?name:_ ~length hash value ->
+    Lwt.return ((to_entry ~length:(Int64.to_int length) hash value) :: acc))
+    ~path:(Fpath.v ".") [] commit >|= Array.of_list >>= fun entries ->
+  Delta.delta ~threads:(List.init 4 (fun _ -> load t))
+    ~weight:10 ~uid_ln:Digestif.SHA1.digest_size entries
+  >>= fun targets ->
+  let offsets = Hashtbl.create (Array.length targets) in
+  let find hash = Lwt.return (Option.map Int64.to_int (Hashtbl.find_opt offsets hash)) in
+  let uid =
+    { Carton.Enc.uid_ln= SHA1.digest_size
+    ; Carton.Enc.uid_rw= SHA1.to_raw_string } in
+  let b =
+    { Carton.Enc.o= Bigstringaf.create De.io_buffer_size
+    ; Carton.Enc.i= Bigstringaf.create De.io_buffer_size
+    ; Carton.Enc.q= De.Queue.create 0x10000
+    ; Carton.Enc.w= De.Lz77.make_window ~bits:15 } in
+  let ctx = ref SHA1.empty in
+  let cursor = ref 0L in
+  let header = Bigstringaf.create 12 in
+  Carton.Enc.header_of_pack ~length:(Array.length targets) header 0 12 ;
+  stream (Some (Bigstringaf.to_string header)) ;
+  ctx := SHA1.feed_bigstring !ctx header ~off:0 ~len:12 ;
+  cursor := Int64.add !cursor 12L ;
+  let encode_target idx =
+    Hashtbl.add offsets (Carton.Enc.target_uid targets.(idx)) !cursor ;
+    Carton_lwt.Enc.encode_target ~b ~find ~load:(load t) ~uid targets.(idx) ~cursor:(Int64.to_int !cursor)
+    >>= fun (len, encoder) ->
+    let payload = Bigstringaf.substring b.o ~off:0 ~len in
+    stream (Some payload) ;
+    ctx := SHA1.feed_bigstring !ctx b.o ~off:0 ~len ;
+    cursor := Int64.add !cursor (Int64.of_int len) ;
+    let rec go encoder = match Carton.Enc.N.encode ~o:b.o encoder with
+      | `Flush (encoder, len) ->
+        let payload = Bigstringaf.substring b.o ~off:0 ~len in
+        stream (Some payload) ;
+        ctx := SHA1.feed_bigstring !ctx b.o ~off:0 ~len ;
+        cursor := Int64.add !cursor (Int64.of_int len) ;
+        let encoder = Carton.Enc.N.dst encoder b.o 0 (Bigstringaf.length b.o) in
+        go encoder
+      | `End -> Lwt.return_unit in
+    let encoder = Carton.Enc.N.dst encoder b.o 0 (Bigstringaf.length b.o) in
+    go encoder in
+  let rec go idx =
+    if idx < Array.length targets
+    then encode_target idx >>= fun () -> go (succ idx)
+    else Lwt.return_unit in
+  go 0 >>= fun () ->
+  let hash = SHA1.get !ctx in
+  stream (Some (SHA1.to_raw_string hash)) ;
+  stream (Some (SHA1.to_raw_string commit)) ;
+  (* XXX(dinosaure): PACK file + the hash of the commit. The hash of the commit
+     is not really needed if we assert that we store only one commit finally. We
+     can just, for the decoding, unpack everything and find the only commit
+     available into the PACK file. *)
+  stream None ;
+  Lwt.return_unit
+
 let to_octets t =
   (* TODO maybe preserve edn and branch as well? *)
   let open Lwt.Infix in
