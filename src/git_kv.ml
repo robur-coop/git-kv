@@ -144,10 +144,10 @@ let exists t key =
   match t.head with
   | None -> Lwt.return (Ok None)
   | Some head ->
-    Search.mem t.store head (`Path (Mirage_kv.Key.segments key)) >>= function
+    Search.mem t.store head (`Commit (`Path (Mirage_kv.Key.segments key))) >>= function
     | false -> Lwt.return (Ok None)
     | true ->
-      Search.find t.store head (`Path (Mirage_kv.Key.segments key))
+      Search.find t.store head (`Commit (`Path (Mirage_kv.Key.segments key)))
       >|= Option.get >>= Store.read_exn t.store >>= function
       | Blob _ -> Lwt.return (Ok (Some `Value))
       | Tree _ | Commit _ | Tag _ -> Lwt.return (Ok (Some `Dictionary))
@@ -157,7 +157,7 @@ let get t key =
   match t.head with
   | None -> Lwt.return (Error (`Not_found key))
   | Some head ->
-    Search.find t.store head (`Path (Mirage_kv.Key.segments key)) >>= function
+    Search.find t.store head (`Commit (`Path (Mirage_kv.Key.segments key))) >>= function
     | None -> Lwt.return (Error (`Not_found key))
     | Some blob ->
       Store.read_exn t.store blob >|= function
@@ -178,7 +178,7 @@ let list t key =
   match t.head with
   | None -> Lwt.return (Error (`Not_found key))
   | Some head ->
-    Search.find t.store head (`Path (Mirage_kv.Key.segments key)) >>= function
+    Search.find t.store head (`Commit (`Path (Mirage_kv.Key.segments key))) >>= function
     | None -> Lwt.return (Error (`Not_found key))
     | Some tree ->
       Store.read_exn t.store tree >>= function
