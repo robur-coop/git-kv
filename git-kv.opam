@@ -1,4 +1,20 @@
 opam-version: "2.0"
 maintainer: "Robur Team <team@robur.coop>"
-authors: "Robur Team <team@robur.coop>"
-synopsis: "Not empty"
+authors: [ "Robur Team <team@robur.coop>" ]
+homepage: "https://git.robur.io/robur/git-kv"
+dev-repo: "git+https://git.robur.io/robur/git-kv.git"
+bug-reports: "https://git.robur.io/robur/git-kv"
+synopsis: "A Mirage_kv implementation using git"
+
+depends: [
+  "ocaml" {>= "4.08.0"}
+  "dune" {>= "2.0.0"}
+  "git" {>= "3.9.0"}
+  "mirage-kv" {>= "4.0.0"}
+  "ptime"
+]
+
+build: [
+  ["dune" "subst"] {dev}
+  ["dune" "build" "-p" name "-j" jobs]
+]
