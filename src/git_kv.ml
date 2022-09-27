@@ -429,7 +429,7 @@ let get t key =
       | Blob b -> Ok (Git.Blob.to_string b)
       | _ -> Error (`Value_expected key)
 
-let _get_partial t key ~offset ~length =
+let get_partial t key ~offset ~length =
   let open Lwt_result.Infix in
   get t key >|= fun data ->
   if String.length data < offset then
@@ -486,7 +486,7 @@ let digest t key =
     ~some:(fun x -> Ok (Store.Hash.to_hex x))
     t.head |> Lwt.return
 
-let _size t key =
+let size t key =
   let open Lwt_result.Infix in
   get t key >|= fun data ->
   String.length data
