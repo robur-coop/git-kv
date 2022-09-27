@@ -37,11 +37,13 @@ let split_url s =
     Smart_git.Endpoint.of_string s |> to_invalid, main
 
 let fpath_to_key ~root v =
-  Mirage_kv.Key.v (Fpath.to_string (Option.get (Fpath.relativize ~root v)))
+  if Fpath.equal root v
+  then Mirage_kv.Key.empty
+  else Mirage_kv.Key.v (Fpath.to_string (Option.get (Fpath.relativize ~root v)))
 
 let diff store commit0 commit1 =
   let open Lwt.Infix in
-  let root = Fpath.v "." in
+  let root = Fpath.v "./" in
   let tbl0 = Hashtbl.create 0x10 in
   Store.fold store (fun () ?name ~length:_ hash _value ->
     Option.iter (fun name -> Hashtbl.add tbl0 (fpath_to_key ~root name) hash) name ;
@@ -50,12 +52,13 @@ let diff store commit0 commit1 =
   Store.fold store (fun () ?name ~length:_ hash _value ->
     Option.iter (fun name -> Hashtbl.add tbl1 (fpath_to_key ~root name) hash) name ;
     Lwt.return ()) () ~path:root commit1 >>= fun () ->
-  let diff = Hashtbl.fold (fun name hash diff -> match Hashtbl.find_opt tbl1 name with
+  let diff = Hashtbl.fold (fun name hash diff ->
+    match Hashtbl.find_opt tbl1 name with
     | Some hash' when not (Digestif.SHA1.equal hash hash') -> `Change name :: diff
     | Some _ -> diff
     | None -> `Remove name :: diff) tbl0 [] in
   let diff = Hashtbl.fold (fun name _hash diff ->
-    if Hashtbl.mem tbl0 name
+    if not (Hashtbl.mem tbl0 name)
     then `Add name :: diff else diff) tbl1 diff in
   Lwt.return diff
 
@@ -238,11 +241,6 @@ let pack t ~commit stream =
   go 0 >>= fun () ->
   let hash = SHA1.get !ctx in
   stream (Some (SHA1.to_raw_string hash)) ;
-  stream (Some (SHA1.to_raw_string commit)) ;
-  (* XXX(dinosaure): PACK file + the hash of the commit. The hash of the commit
-     is not really needed if we assert that we store only one commit finally. We
-     can just, for the decoding, unpack everything and find the only commit
-     available into the PACK file. *)
   stream None ;
   Lwt.return_unit
 
@@ -346,6 +344,8 @@ let stream_of_string str =
   | false -> closed := true ; Lwt.return_some str
 
 let map contents ~pos len =
+  let off = Int64.to_int pos in
+  let len = min (String.length contents - off) len in
   Bigstringaf.of_string ~off:(Int64.to_int pos) ~len contents
 
 let unpack contents =
@@ -398,7 +398,10 @@ let of_octets ctx ~remote data =
        unpack data >>= fun (store, head) ->
        let edn, branch = split_url remote in
        Lwt.return_ok { ctx ; edn ; branch ; store ; head; })
-    (fun _exn ->
+    (fun exn ->
+       Fmt.epr ">>> Got an exception: %s.\n%!" (Printexc.to_string exn) ;
+       Fmt.epr ">>> %s.\n%!"
+         (Printexc.raw_backtrace_to_string (Printexc.get_raw_backtrace ())) ;
        Lwt.return_error (`Msg "Invalid PACK file"))
 
 let exists t key =
@@ -426,7 +429,7 @@ let get t key =
       | Blob b -> Ok (Git.Blob.to_string b)
       | _ -> Error (`Value_expected key)
 
-let get_partial t key ~offset ~length =
+let _get_partial t key ~offset ~length =
   let open Lwt_result.Infix in
   get t key >|= fun data ->
   if String.length data < offset then
@@ -483,7 +486,7 @@ let digest t key =
     ~some:(fun x -> Ok (Store.Hash.to_hex x))
     t.head |> Lwt.return
 
-let size t key =
+let _size t key =
   let open Lwt_result.Infix in
   get t key >|= fun data ->
   String.length data
