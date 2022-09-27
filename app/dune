@@ -1,0 +1,4 @@
+(executable
+ (name mgit)
+ (public_name mgit)
+ (libraries git-unix git-kv))

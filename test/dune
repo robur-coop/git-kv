@@ -1,0 +1,3 @@
+(cram
+ (package git-kv)
+ (deps %{bin:mgit}))
