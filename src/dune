@@ -1,4 +1,5 @@
 (library
   (name git_kv)
   (public_name git-kv)
+  (flags (-w -32))
   (libraries git ptime mirage-kv))
