@@ -18,3 +18,7 @@ build: [
   ["dune" "subst"] {dev}
   ["dune" "build" "-p" name "-j" jobs]
 ]
+
+pin-depends: [
+  [ "carton.dev" "git+https://github.com/mirage/ocaml-git.git#8cb31ed46aa2600f645dba204b164c7fce2f7037" ]
+]
