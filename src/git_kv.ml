@@ -1,16 +1,14 @@
-
 module Store = Git.Mem.Make(Digestif.SHA1)
 module Sync = Git.Mem.Sync(Store)
 module Search = Git.Search.Make(Digestif.SHA1)(Store)
 module Git_commit = Git.Commit.Make(Store.Hash)
 
-type t = {
-  ctx : Mimic.ctx ;
-  edn : Smart_git.Endpoint.t;
-  branch : Git.Reference.t ;
-  store : Store.t ;
-  mutable head : Store.hash option ;
-}
+type t =
+  { ctx : Mimic.ctx
+  ; edn : Smart_git.Endpoint.t
+  ; branch : Git.Reference.t
+  ; store : Store.t
+  ; mutable head : Store.hash option }
 
 let init_store () =
   let open Lwt.Infix in
@@ -113,8 +111,17 @@ type change = [
 ]
 
 type error = Mirage_kv.error
+type write_error = [ `Msg of string
+                   | `Hash_not_found of Digestif.SHA1.t
+                   | `Reference_not_found of Git.Reference.t
+                   | Mirage_kv.write_error ]
 
 let pp_error ppf = Mirage_kv.pp_error ppf
+
+let pp_write_error ppf = function
+  | #Mirage_kv.write_error as err -> Mirage_kv.pp_write_error ppf err
+  | `Reference_not_found _ | `Msg _ as err -> Store.pp_error ppf err
+  | `Hash_not_found hash -> Store.pp_error ppf (`Not_found hash)
 
 let disconnect _t = Lwt.return_unit
 
@@ -490,3 +497,132 @@ let size t key =
   let open Lwt_result.Infix in
   get t key >|= fun data ->
   String.length data
+
+let author ~now =
+  { Git.User.name= "Git KV"
+  ; email= "git@mirage.io"
+  ; date= now (), None }
+
+let rec unroll_tree t ?head (pred_name, pred_hash) rpath =
+  let open Lwt.Infix in
+  let ( >>? ) = Lwt_result.bind in
+  let ( >>! ) x f = match x with
+    | Some x -> f x
+    | None -> Lwt.return_none in
+  match rpath with
+  | [] ->
+    ( match head with
+    | None ->
+      let tree = Git.Tree.(v [ entry ~name:pred_name `Dir pred_hash ]) in
+      Store.write t.store (Git.Value.Tree tree) >>? fun (hash, _) -> Lwt.return_ok hash
+    | Some head ->
+      Search.find t.store head (`Commit (`Path [])) >|= Option.get >>= fun tree_root_hash ->
+      ( Store.read_exn t.store tree_root_hash >>= function
+      | Git.Value.Tree tree ->
+        let tree = Git.Tree.(add (entry ~name:pred_name `Dir pred_hash) (remove ~name:pred_name tree)) in
+        Store.write t.store (Git.Value.Tree tree) >>? fun (hash, _) -> Lwt.return_ok hash
+      | _ -> assert false ) )
+  | name :: rest ->
+    (head >>! fun head -> Search.find t.store head (`Commit (`Path (List.rev rpath)))) >>= function
+    | None ->
+      let tree = Git.Tree.(v [ entry ~name:pred_name `Dir pred_hash ]) in
+      Store.write t.store (Git.Value.Tree tree) >>? fun (hash, _) ->
+      unroll_tree t ?head (name, hash) rest
+    | Some tree_hash ->
+      ( Store.read_exn t.store tree_hash >>= function
+      | Git.Value.Tree tree ->
+        let tree = Git.Tree.(add (entry ~name:pred_name `Dir pred_hash) (remove ~name:pred_name tree)) in
+        Store.write t.store (Git.Value.Tree tree) >>? fun (hash, _) ->
+        unroll_tree t ?head (name, hash) rest
+        | _ -> assert false )
+
+let set t key contents =
+  let segs = Mirage_kv.Key.segments key in
+  let now () = 0L (* TODO(dinosaure): functorize? *) in
+  match segs with
+  | [] -> assert false
+  | path ->
+    let blob = Git.Blob.of_string contents in
+    let rpath = List.rev path in
+    let name = List.hd rpath in
+    let open Lwt_result.Infix in
+    Store.write t.store (Git.Value.Blob blob) >>= fun (hash, _) ->
+    unroll_tree t ?head:t.head (name, hash) (List.tl rpath) >>= fun tree_root_hash ->
+    let committer = author ~now in
+    let author = author ~now in
+    let parents = Option.value ~default:[] (Option.map (fun head -> [ head ]) t.head) in
+    let commit = Store.Value.Commit.make ~tree:tree_root_hash ~author ~committer
+      ~parents (Some "Committed by git-kv") in
+    Store.write t.store (Git.Value.Commit commit) >>= fun (hash, _) ->
+    t.head <- Some hash ; Lwt.return_ok ()
+
+let to_write_error (error : Store.error) = match error with
+  | `Not_found hash -> `Hash_not_found hash
+  | `Reference_not_found ref -> `Reference_not_found ref
+  | `Msg err -> `Msg err
+  | err -> Rresult.R.msgf "%a" Store.pp_error err
+
+let set t key contents =
+  let open Lwt.Infix in
+  set t key contents >|= Rresult.R.reword_error to_write_error
+
+let set_partial t key ~offset chunk =
+  let open Lwt_result.Infix in
+  get t key >>= fun contents ->
+  let len = String.length contents in
+  let add = String.length chunk in
+  let res = Bytes.make (max len (offset + add)) '\000' in
+  Bytes.blit_string contents 0 res 0 len ;
+  Bytes.blit_string chunk 0 res offset add ;
+  set t key (Bytes.unsafe_to_string res)
+
+let batch t ?retries:_ f = f t
+
+let remove t key =
+  let segs = Mirage_kv.Key.segments key in
+  let now () = 0L (* TODO(dinosaure): functorize? *) in
+  match List.rev segs, t.head with
+  | [], _ -> assert false
+  | _, None -> Lwt.return_ok () (* XXX(dinosaure): or [`Not_found]? *)
+  | name :: [], Some head ->
+    let open Lwt.Infix in
+    Search.find t.store head (`Commit (`Path [])) >|= Option.get >>= fun tree_root_hash ->
+    Store.read_exn t.store tree_root_hash >>= fun tree_root ->
+    let[@warning "-8"] Git.Value.Tree tree_root = tree_root in
+    let tree_root = Git.Tree.remove ~name tree_root in
+    let open Lwt_result.Infix in
+    Store.write t.store (Git.Value.Tree tree_root) >>= fun (tree_root_hash, _) ->
+    let committer = author ~now in
+    let author = author ~now in
+    let commit = Store.Value.Commit.make ~tree:tree_root_hash ~author ~committer
+      ~parents:[ head ] (Some "Committed by git-kv") in
+    Store.write t.store (Git.Value.Commit commit) >>= fun (hash, _) ->
+    t.head <- Some hash ; Lwt.return_ok ()
+  | name :: pred_name :: rest, Some head ->
+    let open Lwt.Infix in
+    Search.find t.store head (`Commit (`Path (List.rev (pred_name :: rest)))) >>= function
+    | None -> Lwt.return_ok ()
+    | Some hash -> Store.read_exn t.store hash >>= function
+      | Git.Value.Tree tree ->
+        let tree = Git.Tree.remove ~name tree in
+        let open Lwt_result.Infix in
+        Store.write t.store (Git.Value.Tree tree) >>= fun (pred_hash, _) ->
+        unroll_tree t ~head (pred_name, pred_hash) rest >>= fun tree_root_hash ->
+        let committer = author ~now in
+        let author = author ~now in
+        let commit = Store.Value.Commit.make ~tree:tree_root_hash ~author ~committer
+          ~parents:[ head ] (Some "Committed by git-kv") in
+        Store.write t.store (Git.Value.Commit commit) >>= fun (hash, _) ->
+        t.head <- Some hash ; Lwt.return_ok ()
+      | _ -> Lwt.return_ok ()
+
+let remove t key =
+  let open Lwt.Infix in
+  remove t key >|= Rresult.R.reword_error to_write_error
+
+let rename t ~source ~dest =
+  (* TODO(dinosaure): optimize it! It was done on the naive way. *)
+  let open Lwt_result.Infix in
+  get t source >>= fun contents ->
+  remove t source >>= fun () ->
+  set t dest contents
