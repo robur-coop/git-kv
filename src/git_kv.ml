@@ -502,6 +502,7 @@ module Make (Pclock : Mirage_clock.PCLOCK) = struct
       let commit = Store.Value.Commit.make ~tree:tree_root_hash ~author ~committer
         ~parents (Some "Committed by git-kv") in
       Store.write t.store (Git.Value.Commit commit) >>= fun (hash, _) ->
+      Lwt.Infix.(Store.shallow t.store hash >|= Result.ok) >>= fun () ->
       t.head <- Some hash ; Lwt.return_ok ()
   
   let to_write_error (error : Store.error) = match error with
@@ -545,6 +546,7 @@ module Make (Pclock : Mirage_clock.PCLOCK) = struct
       let commit = Store.Value.Commit.make ~tree:tree_root_hash ~author ~committer
         ~parents:[ head ] (Some "Committed by git-kv") in
       Store.write t.store (Git.Value.Commit commit) >>= fun (hash, _) ->
+      Lwt.Infix.(Store.shallow t.store hash >|= Result.ok) >>= fun () ->
       t.head <- Some hash ; Lwt.return_ok ()
     | name :: pred_name :: rest, Some head ->
       let open Lwt.Infix in
@@ -561,6 +563,7 @@ module Make (Pclock : Mirage_clock.PCLOCK) = struct
           let commit = Store.Value.Commit.make ~tree:tree_root_hash ~author ~committer
             ~parents:[ head ] (Some "Committed by git-kv") in
           Store.write t.store (Git.Value.Commit commit) >>= fun (hash, _) ->
+          Lwt.Infix.(Store.shallow t.store hash >|= Result.ok) >>= fun () ->
           t.head <- Some hash ; Lwt.return_ok ()
         | _ -> Lwt.return_ok ()
   
