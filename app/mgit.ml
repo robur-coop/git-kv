@@ -1,4 +1,5 @@
 let () = Printexc.record_backtrace true
+module Store = Git_kv.Make (Pclock)
 
 let reporter ppf =
   let report src level ~over k msgf =
@@ -25,17 +26,17 @@ open Rresult
 open Lwt.Infix
 
 let get ~quiet store key =
-  Git_kv.get store key >>= function
+  Store.get store key >>= function
   | Ok contents when not quiet ->
     Fmt.pr "@[<hov>%a@]\n%!" (Hxd_string.pp Hxd.default) contents ;
     Lwt.return (Ok 0)
   | Ok _ -> Lwt.return (Ok 0)
   | Error err ->
-    if not quiet then Fmt.epr "%a.\n%!" Git_kv.pp_error err ;
+    if not quiet then Fmt.epr "%a.\n%!" Store.pp_error err ;
     Lwt.return (Ok 1)
 
 let list ~quiet store key =
-  Git_kv.list store key >>= function
+  Store.list store key >>= function
   | Ok lst when not quiet ->
     List.iter (fun (name, k) -> match k with
     | `Dictionary -> Fmt.pr "d %s\n%!" name
@@ -43,7 +44,7 @@ let list ~quiet store key =
     Lwt.return (Ok 0)
   | Ok _ -> Lwt.return (Ok 0)
   | Error err ->
-    if not quiet then Fmt.epr "%a.\n%!" Git_kv.pp_error err ;
+    if not quiet then Fmt.epr "%a.\n%!" Store.pp_error err ;
     Lwt.return (Ok 1)
 
 let pull ~quiet store =

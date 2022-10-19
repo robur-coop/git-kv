@@ -7,11 +7,13 @@ bug-reports: "https://git.robur.io/robur/git-kv"
 synopsis: "A Mirage_kv implementation using git"
 
 depends: [
-  "ocaml" {>= "4.08.0"}
-  "dune" {>= "2.0.0"}
-  "git" {>= "3.9.0"}
-  "mirage-kv" {>= "4.0.0"}
+  "ocaml"             {>= "4.08.0"}
+  "dune"              {>= "2.0.0"}
+  "git"               {>= "3.9.0"}
+  "mirage-kv"         {>= "4.0.0"}
   "git-unix"
+  "mirage-clock-unix"
+  "mirage-clock"
   "ptime"
 ]
 
