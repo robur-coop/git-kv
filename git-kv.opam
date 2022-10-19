@@ -11,6 +11,7 @@ depends: [
   "dune" {>= "2.0.0"}
   "git" {>= "3.9.0"}
   "mirage-kv" {>= "4.0.0"}
+  "git-unix"
   "ptime"
 ]
 
