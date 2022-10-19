@@ -83,14 +83,20 @@ let pull t =
     Store.Ref.resolve t.store t.branch >>= fun r ->
     let head =
       Result.map_error
-        (fun e -> `Msg (Fmt.str "error resolving branch %s: %a"
-                          (Git.Reference.to_string t.branch)
+        (fun e -> `Msg (Fmt.str "error resolving branch %a: %a"
+                          Git.Reference.pp t.branch
                           Store.pp_error e))
         r |> to_invalid
     in
     diff t.store t.head head >>= fun diff ->
     t.head <- Some head;
     Lwt.return (Ok diff)
+
+let push t =
+  let open Lwt.Infix in
+  Sync.push ~capabilities ~ctx:t.ctx t.edn t.store [ `Update (t.branch, t.branch) ]
+  >|= Result.map_error (fun err -> `Msg (Fmt.str "error pushing branch %a: %a"
+    Git.Reference.pp t.branch Sync.pp_error err))
 
 let connect ctx endpoint =
   let open Lwt.Infix in
