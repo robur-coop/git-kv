@@ -1,9 +1,29 @@
-(* The idea is to provide a Mirage_kv.RW interface that is backed by a git
-   repository. The git repository is always (manually) kept in sync with the
-   remote one: either this is the only writer (and thus only set/remove
-   operations need to be pushed, or the API client receives a callback that
-   some update was done, and proceeds with a pull. *)
+(** {1: A Git key-value store.}
+
+    This module implements the ability to manipulate a Git repository as a
+    Key-Value store. It allows you to create a local (in-memory) Git repository
+    that can come from either:
+    - a remote Git repository
+    - a state serialized by the {!val:to_octets} function
+
+    The first case is interesting if you want to be synchronised with the
+    remote repository. The second case can be interesting if we {b don't} want
+    to create a connection at the beginning and desynchronisation between our
+    local and remote repositories {b is not} a problem.
+
+    In the second case, the synchronisation can be done later with {!val:pull}.
+
+    As far as {!val:push} is concerned, a synchronisation with the remote
+    repository is necessary before {b changing} and sending the new information
+    (a use of {!val:Make.set}/{!val:Make.rename} should be preceded by a
+    {!val:pull}). This is because we do not handle conflicts that may exist
+    between your local repository and the remote repository - in other words,
+    if you want to ensure consistency between reading ({!val:pull}) and writing
+    ({!val:push}) to a remote repository, the instance that uses this code
+    should be the only one to handle said remote repository. *)
+
 type t
+(** The type of the Git store. *)
 
 val connect : Mimic.ctx -> string -> t Lwt.t
 (** [connect ctx remote] creates a new Git store which synchronizes
