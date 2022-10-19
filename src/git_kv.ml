@@ -116,21 +116,6 @@ type change = [
   | `Change of key
 ]
 
-type error = Mirage_kv.error
-type write_error = [ `Msg of string
-                   | `Hash_not_found of Digestif.SHA1.t
-                   | `Reference_not_found of Git.Reference.t
-                   | Mirage_kv.write_error ]
-
-let pp_error ppf = Mirage_kv.pp_error ppf
-
-let pp_write_error ppf = function
-  | #Mirage_kv.write_error as err -> Mirage_kv.pp_write_error ppf err
-  | `Reference_not_found _ | `Msg _ as err -> Store.pp_error ppf err
-  | `Hash_not_found hash -> Store.pp_error ppf (`Not_found hash)
-
-let disconnect _t = Lwt.return_unit
-
 module SHA1 = struct
   include Digestif.SHA1
 
@@ -356,218 +341,240 @@ let of_octets ctx ~remote data =
          (Printexc.raw_backtrace_to_string (Printexc.get_raw_backtrace ())) ;
        Lwt.return_error (`Msg "Invalid PACK file"))
 
-let exists t key =
-  let open Lwt.Infix in
-  match t.head with
-  | None -> Lwt.return (Ok None)
-  | Some head ->
-    Search.mem t.store head (`Commit (`Path (Mirage_kv.Key.segments key))) >>= function
-    | false -> Lwt.return (Ok None)
-    | true ->
-      Search.find t.store head (`Commit (`Path (Mirage_kv.Key.segments key)))
-      >|= Option.get >>= Store.read_exn t.store >>= function
-      | Blob _ -> Lwt.return (Ok (Some `Value))
-      | Tree _ | Commit _ | Tag _ -> Lwt.return (Ok (Some `Dictionary))
+module Make (Pclock : Mirage_clock.PCLOCK) = struct
+  type nonrec t = t
+  type key = Mirage_kv.Key.t
 
-let get t key =
-  let open Lwt.Infix in
-  match t.head with
-  | None -> Lwt.return (Error (`Not_found key))
-  | Some head ->
-    Search.find t.store head (`Commit (`Path (Mirage_kv.Key.segments key))) >>= function
-    | None -> Lwt.return (Error (`Not_found key))
-    | Some blob ->
-      Store.read_exn t.store blob >|= function
-      | Blob b -> Ok (Git.Blob.to_string b)
-      | _ -> Error (`Value_expected key)
+  type error = Mirage_kv.error
+  type write_error = [ `Msg of string
+                     | `Hash_not_found of Digestif.SHA1.t
+                     | `Reference_not_found of Git.Reference.t
+                     | Mirage_kv.write_error ]
+  
+  let pp_error ppf = Mirage_kv.pp_error ppf
+  let disconnect _t = Lwt.return_unit
+  
+  let pp_write_error ppf = function
+    | #Mirage_kv.write_error as err -> Mirage_kv.pp_write_error ppf err
+    | `Reference_not_found _ | `Msg _ as err -> Store.pp_error ppf err
+    | `Hash_not_found hash -> Store.pp_error ppf (`Not_found hash)
 
-let get_partial t key ~offset ~length =
-  let open Lwt_result.Infix in
-  get t key >|= fun data ->
-  if String.length data < offset then
-    ""
-  else
-    let l = min length (String.length data - offset) in
-    String.sub data offset l
-
-let list t key =
-  let open Lwt.Infix in
-  match t.head with
-  | None -> Lwt.return (Error (`Not_found key))
-  | Some head ->
-    Search.find t.store head (`Commit (`Path (Mirage_kv.Key.segments key))) >>= function
-    | None -> Lwt.return (Error (`Not_found key))
-    | Some tree ->
-      Store.read_exn t.store tree >>= function
-      | Tree t ->
-        Lwt_list.map_p (fun { Git.Tree.perm; name; _ } -> match perm with
-          | `Commit | `Dir -> Lwt.return (name, `Dictionary)
-          | `Everybody | `Exec | `Normal -> Lwt.return (name, `Value)
-          | `Link -> failwith "Unimplemented link follow")
-        (Store.Value.Tree.to_list t) >|= Result.ok
-      | _ -> Lwt.return (Error (`Dictionary_expected key))
-
-let last_modified t key =
-  let open Lwt.Infix in
-  Option.fold
-    ~none:(Lwt.return (Error (`Not_found key)))
-    ~some:(fun head ->
-        Store.read_exn t.store head >|= function
-        | Commit c ->
-          let author = Git_commit.author c in
-          let secs, tz_offset = author.Git.User.date in
-          let secs =
-            Option.fold ~none:secs
-              ~some:(fun { Git.User.sign ; hours ; minutes } ->
-                  let tz_off = Int64.(mul (add (mul (of_int hours) 60L) (of_int minutes)) 60L) in
-                  match sign with
-                  | `Plus -> Int64.(sub secs tz_off)
-                  | `Minus -> Int64.(add secs tz_off))
-              tz_offset
-          in
-          let ts =
-            Option.fold ~none:Ptime.epoch ~some:Fun.id (Ptime.of_float_s (Int64.to_float secs))
-          in
-          Ok (Ptime.(Span.to_d_ps (to_span ts)))
-        | _ -> assert false)
-    t.head
-
-let digest t key =
-  Option.fold
-    ~none:(Error (`Not_found key))
-    ~some:(fun x -> Ok (Store.Hash.to_hex x))
-    t.head |> Lwt.return
-
-let size t key =
-  let open Lwt_result.Infix in
-  get t key >|= fun data ->
-  String.length data
-
-let author ~now =
-  { Git.User.name= "Git KV"
-  ; email= "git@mirage.io"
-  ; date= now (), None }
-
-let rec unroll_tree t ?head (pred_name, pred_hash) rpath =
-  let open Lwt.Infix in
-  let ( >>? ) = Lwt_result.bind in
-  let ( >>! ) x f = match x with
-    | Some x -> f x
-    | None -> Lwt.return_none in
-  match rpath with
-  | [] ->
-    ( match head with
-    | None ->
-      let tree = Git.Tree.(v [ entry ~name:pred_name `Dir pred_hash ]) in
-      Store.write t.store (Git.Value.Tree tree) >>? fun (hash, _) -> Lwt.return_ok hash
+  let exists t key =
+    let open Lwt.Infix in
+    match t.head with
+    | None -> Lwt.return (Ok None)
     | Some head ->
-      Search.find t.store head (`Commit (`Path [])) >|= Option.get >>= fun tree_root_hash ->
-      ( Store.read_exn t.store tree_root_hash >>= function
-      | Git.Value.Tree tree ->
-        let tree = Git.Tree.(add (entry ~name:pred_name `Dir pred_hash) (remove ~name:pred_name tree)) in
+      Search.mem t.store head (`Commit (`Path (Mirage_kv.Key.segments key))) >>= function
+      | false -> Lwt.return (Ok None)
+      | true ->
+        Search.find t.store head (`Commit (`Path (Mirage_kv.Key.segments key)))
+        >|= Option.get >>= Store.read_exn t.store >>= function
+        | Blob _ -> Lwt.return (Ok (Some `Value))
+        | Tree _ | Commit _ | Tag _ -> Lwt.return (Ok (Some `Dictionary))
+  
+  let get t key =
+    let open Lwt.Infix in
+    match t.head with
+    | None -> Lwt.return (Error (`Not_found key))
+    | Some head ->
+      Search.find t.store head (`Commit (`Path (Mirage_kv.Key.segments key))) >>= function
+      | None -> Lwt.return (Error (`Not_found key))
+      | Some blob ->
+        Store.read_exn t.store blob >|= function
+        | Blob b -> Ok (Git.Blob.to_string b)
+        | _ -> Error (`Value_expected key)
+  
+  let get_partial t key ~offset ~length =
+    let open Lwt_result.Infix in
+    get t key >|= fun data ->
+    if String.length data < offset then
+      ""
+    else
+      let l = min length (String.length data - offset) in
+      String.sub data offset l
+  
+  let list t key =
+    let open Lwt.Infix in
+    match t.head with
+    | None -> Lwt.return (Error (`Not_found key))
+    | Some head ->
+      Search.find t.store head (`Commit (`Path (Mirage_kv.Key.segments key))) >>= function
+      | None -> Lwt.return (Error (`Not_found key))
+      | Some tree ->
+        Store.read_exn t.store tree >>= function
+        | Tree t ->
+          Lwt_list.map_p (fun { Git.Tree.perm; name; _ } -> match perm with
+            | `Commit | `Dir -> Lwt.return (name, `Dictionary)
+            | `Everybody | `Exec | `Normal -> Lwt.return (name, `Value)
+            | `Link -> failwith "Unimplemented link follow")
+          (Store.Value.Tree.to_list t) >|= Result.ok
+        | _ -> Lwt.return (Error (`Dictionary_expected key))
+  
+  let last_modified t key =
+    let open Lwt.Infix in
+    Option.fold
+      ~none:(Lwt.return (Error (`Not_found key)))
+      ~some:(fun head ->
+          Store.read_exn t.store head >|= function
+          | Commit c ->
+            let author = Git_commit.author c in
+            let secs, tz_offset = author.Git.User.date in
+            let secs =
+              Option.fold ~none:secs
+                ~some:(fun { Git.User.sign ; hours ; minutes } ->
+                    let tz_off = Int64.(mul (add (mul (of_int hours) 60L) (of_int minutes)) 60L) in
+                    match sign with
+                    | `Plus -> Int64.(sub secs tz_off)
+                    | `Minus -> Int64.(add secs tz_off))
+                tz_offset
+            in
+            let ts =
+              Option.fold ~none:Ptime.epoch ~some:Fun.id (Ptime.of_float_s (Int64.to_float secs))
+            in
+            Ok (Ptime.(Span.to_d_ps (to_span ts)))
+          | _ -> assert false)
+      t.head
+  
+  let digest t key =
+    Option.fold
+      ~none:(Error (`Not_found key))
+      ~some:(fun x -> Ok (Store.Hash.to_hex x))
+      t.head |> Lwt.return
+  
+  let size t key =
+    let open Lwt_result.Infix in
+    get t key >|= fun data ->
+    String.length data
+  
+  let author ~now =
+    { Git.User.name= "Git KV"
+    ; email= "git@mirage.io"
+    ; date= now (), None }
+  
+  let rec unroll_tree t ?head (pred_name, pred_hash) rpath =
+    let open Lwt.Infix in
+    let ( >>? ) = Lwt_result.bind in
+    let ( >>! ) x f = match x with
+      | Some x -> f x
+      | None -> Lwt.return_none in
+    match rpath with
+    | [] ->
+      ( match head with
+      | None ->
+        let tree = Git.Tree.(v [ entry ~name:pred_name `Dir pred_hash ]) in
         Store.write t.store (Git.Value.Tree tree) >>? fun (hash, _) -> Lwt.return_ok hash
-      | _ -> assert false ) )
-  | name :: rest ->
-    (head >>! fun head -> Search.find t.store head (`Commit (`Path (List.rev rpath)))) >>= function
-    | None ->
-      let tree = Git.Tree.(v [ entry ~name:pred_name `Dir pred_hash ]) in
-      Store.write t.store (Git.Value.Tree tree) >>? fun (hash, _) ->
-      unroll_tree t ?head (name, hash) rest
-    | Some tree_hash ->
-      ( Store.read_exn t.store tree_hash >>= function
-      | Git.Value.Tree tree ->
-        let tree = Git.Tree.(add (entry ~name:pred_name `Dir pred_hash) (remove ~name:pred_name tree)) in
+      | Some head ->
+        Search.find t.store head (`Commit (`Path [])) >|= Option.get >>= fun tree_root_hash ->
+        ( Store.read_exn t.store tree_root_hash >>= function
+        | Git.Value.Tree tree ->
+          let tree = Git.Tree.(add (entry ~name:pred_name `Dir pred_hash) (remove ~name:pred_name tree)) in
+          Store.write t.store (Git.Value.Tree tree) >>? fun (hash, _) -> Lwt.return_ok hash
+        | _ -> assert false ) )
+    | name :: rest ->
+      (head >>! fun head -> Search.find t.store head (`Commit (`Path (List.rev rpath)))) >>= function
+      | None ->
+        let tree = Git.Tree.(v [ entry ~name:pred_name `Dir pred_hash ]) in
         Store.write t.store (Git.Value.Tree tree) >>? fun (hash, _) ->
         unroll_tree t ?head (name, hash) rest
-        | _ -> assert false )
-
-let set t key contents =
-  let segs = Mirage_kv.Key.segments key in
-  let now () = 0L (* TODO(dinosaure): functorize? *) in
-  match segs with
-  | [] -> assert false
-  | path ->
-    let blob = Git.Blob.of_string contents in
-    let rpath = List.rev path in
-    let name = List.hd rpath in
-    let open Lwt_result.Infix in
-    Store.write t.store (Git.Value.Blob blob) >>= fun (hash, _) ->
-    unroll_tree t ?head:t.head (name, hash) (List.tl rpath) >>= fun tree_root_hash ->
-    let committer = author ~now in
-    let author = author ~now in
-    let parents = Option.value ~default:[] (Option.map (fun head -> [ head ]) t.head) in
-    let commit = Store.Value.Commit.make ~tree:tree_root_hash ~author ~committer
-      ~parents (Some "Committed by git-kv") in
-    Store.write t.store (Git.Value.Commit commit) >>= fun (hash, _) ->
-    t.head <- Some hash ; Lwt.return_ok ()
-
-let to_write_error (error : Store.error) = match error with
-  | `Not_found hash -> `Hash_not_found hash
-  | `Reference_not_found ref -> `Reference_not_found ref
-  | `Msg err -> `Msg err
-  | err -> Rresult.R.msgf "%a" Store.pp_error err
-
-let set t key contents =
-  let open Lwt.Infix in
-  set t key contents >|= Rresult.R.reword_error to_write_error
-
-let set_partial t key ~offset chunk =
-  let open Lwt_result.Infix in
-  get t key >>= fun contents ->
-  let len = String.length contents in
-  let add = String.length chunk in
-  let res = Bytes.make (max len (offset + add)) '\000' in
-  Bytes.blit_string contents 0 res 0 len ;
-  Bytes.blit_string chunk 0 res offset add ;
-  set t key (Bytes.unsafe_to_string res)
-
-let batch t ?retries:_ f = f t
-
-let remove t key =
-  let segs = Mirage_kv.Key.segments key in
-  let now () = 0L (* TODO(dinosaure): functorize? *) in
-  match List.rev segs, t.head with
-  | [], _ -> assert false
-  | _, None -> Lwt.return_ok () (* XXX(dinosaure): or [`Not_found]? *)
-  | name :: [], Some head ->
+      | Some tree_hash ->
+        ( Store.read_exn t.store tree_hash >>= function
+        | Git.Value.Tree tree ->
+          let tree = Git.Tree.(add (entry ~name:pred_name `Dir pred_hash) (remove ~name:pred_name tree)) in
+          Store.write t.store (Git.Value.Tree tree) >>? fun (hash, _) ->
+          unroll_tree t ?head (name, hash) rest
+          | _ -> assert false )
+  
+  let set t key contents =
+    let segs = Mirage_kv.Key.segments key in
+    let now () = Int64.of_float (Ptime.to_float_s (Ptime.v (Pclock.now_d_ps ()))) in
+    match segs with
+    | [] -> assert false
+    | path ->
+      let blob = Git.Blob.of_string contents in
+      let rpath = List.rev path in
+      let name = List.hd rpath in
+      let open Lwt_result.Infix in
+      Store.write t.store (Git.Value.Blob blob) >>= fun (hash, _) ->
+      unroll_tree t ?head:t.head (name, hash) (List.tl rpath) >>= fun tree_root_hash ->
+      let committer = author ~now in
+      let author = author ~now in
+      let parents = Option.value ~default:[] (Option.map (fun head -> [ head ]) t.head) in
+      let commit = Store.Value.Commit.make ~tree:tree_root_hash ~author ~committer
+        ~parents (Some "Committed by git-kv") in
+      Store.write t.store (Git.Value.Commit commit) >>= fun (hash, _) ->
+      Lwt.Infix.(Store.shallow t.store hash >|= Result.ok) >>= fun () ->
+      t.head <- Some hash ; Lwt.return_ok ()
+  
+  let to_write_error (error : Store.error) = match error with
+    | `Not_found hash -> `Hash_not_found hash
+    | `Reference_not_found ref -> `Reference_not_found ref
+    | `Msg err -> `Msg err
+    | err -> Rresult.R.msgf "%a" Store.pp_error err
+  
+  let set t key contents =
     let open Lwt.Infix in
-    Search.find t.store head (`Commit (`Path [])) >|= Option.get >>= fun tree_root_hash ->
-    Store.read_exn t.store tree_root_hash >>= fun tree_root ->
-    let[@warning "-8"] Git.Value.Tree tree_root = tree_root in
-    let tree_root = Git.Tree.remove ~name tree_root in
+    set t key contents >|= Rresult.R.reword_error to_write_error
+  
+  let set_partial t key ~offset chunk =
     let open Lwt_result.Infix in
-    Store.write t.store (Git.Value.Tree tree_root) >>= fun (tree_root_hash, _) ->
-    let committer = author ~now in
-    let author = author ~now in
-    let commit = Store.Value.Commit.make ~tree:tree_root_hash ~author ~committer
-      ~parents:[ head ] (Some "Committed by git-kv") in
-    Store.write t.store (Git.Value.Commit commit) >>= fun (hash, _) ->
-    t.head <- Some hash ; Lwt.return_ok ()
-  | name :: pred_name :: rest, Some head ->
+    get t key >>= fun contents ->
+    let len = String.length contents in
+    let add = String.length chunk in
+    let res = Bytes.make (max len (offset + add)) '\000' in
+    Bytes.blit_string contents 0 res 0 len ;
+    Bytes.blit_string chunk 0 res offset add ;
+    set t key (Bytes.unsafe_to_string res)
+  
+  let batch t ?retries:_ f = f t
+  
+  let remove t key =
+    let segs = Mirage_kv.Key.segments key in
+    let now () = Int64.of_float (Ptime.to_float_s (Ptime.v (Pclock.now_d_ps ()))) in
+    match List.rev segs, t.head with
+    | [], _ -> assert false
+    | _, None -> Lwt.return_ok () (* XXX(dinosaure): or [`Not_found]? *)
+    | name :: [], Some head ->
+      let open Lwt.Infix in
+      Search.find t.store head (`Commit (`Path [])) >|= Option.get >>= fun tree_root_hash ->
+      Store.read_exn t.store tree_root_hash >>= fun tree_root ->
+      let[@warning "-8"] Git.Value.Tree tree_root = tree_root in
+      let tree_root = Git.Tree.remove ~name tree_root in
+      let open Lwt_result.Infix in
+      Store.write t.store (Git.Value.Tree tree_root) >>= fun (tree_root_hash, _) ->
+      let committer = author ~now in
+      let author = author ~now in
+      let commit = Store.Value.Commit.make ~tree:tree_root_hash ~author ~committer
+        ~parents:[ head ] (Some "Committed by git-kv") in
+      Store.write t.store (Git.Value.Commit commit) >>= fun (hash, _) ->
+      Lwt.Infix.(Store.shallow t.store hash >|= Result.ok) >>= fun () ->
+      t.head <- Some hash ; Lwt.return_ok ()
+    | name :: pred_name :: rest, Some head ->
+      let open Lwt.Infix in
+      Search.find t.store head (`Commit (`Path (List.rev (pred_name :: rest)))) >>= function
+      | None -> Lwt.return_ok ()
+      | Some hash -> Store.read_exn t.store hash >>= function
+        | Git.Value.Tree tree ->
+          let tree = Git.Tree.remove ~name tree in
+          let open Lwt_result.Infix in
+          Store.write t.store (Git.Value.Tree tree) >>= fun (pred_hash, _) ->
+          unroll_tree t ~head (pred_name, pred_hash) rest >>= fun tree_root_hash ->
+          let committer = author ~now in
+          let author = author ~now in
+          let commit = Store.Value.Commit.make ~tree:tree_root_hash ~author ~committer
+            ~parents:[ head ] (Some "Committed by git-kv") in
+          Store.write t.store (Git.Value.Commit commit) >>= fun (hash, _) ->
+          Lwt.Infix.(Store.shallow t.store hash >|= Result.ok) >>= fun () ->
+          t.head <- Some hash ; Lwt.return_ok ()
+        | _ -> Lwt.return_ok ()
+  
+  let remove t key =
     let open Lwt.Infix in
-    Search.find t.store head (`Commit (`Path (List.rev (pred_name :: rest)))) >>= function
-    | None -> Lwt.return_ok ()
-    | Some hash -> Store.read_exn t.store hash >>= function
-      | Git.Value.Tree tree ->
-        let tree = Git.Tree.remove ~name tree in
-        let open Lwt_result.Infix in
-        Store.write t.store (Git.Value.Tree tree) >>= fun (pred_hash, _) ->
-        unroll_tree t ~head (pred_name, pred_hash) rest >>= fun tree_root_hash ->
-        let committer = author ~now in
-        let author = author ~now in
-        let commit = Store.Value.Commit.make ~tree:tree_root_hash ~author ~committer
-          ~parents:[ head ] (Some "Committed by git-kv") in
-        Store.write t.store (Git.Value.Commit commit) >>= fun (hash, _) ->
-        t.head <- Some hash ; Lwt.return_ok ()
-      | _ -> Lwt.return_ok ()
-
-let remove t key =
-  let open Lwt.Infix in
-  remove t key >|= Rresult.R.reword_error to_write_error
-
-let rename t ~source ~dest =
-  (* TODO(dinosaure): optimize it! It was done on the naive way. *)
-  let open Lwt_result.Infix in
-  get t source >>= fun contents ->
-  remove t source >>= fun () ->
-  set t dest contents
+    remove t key >|= Rresult.R.reword_error to_write_error
+  
+  let rename t ~source ~dest =
+    (* TODO(dinosaure): optimize it! It was done on the naive way. *)
+    let open Lwt_result.Infix in
+    get t source >>= fun contents ->
+    remove t source >>= fun () ->
+    set t dest contents
+end
