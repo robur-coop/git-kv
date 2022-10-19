@@ -22,4 +22,5 @@ type change = [ `Add of key
               | `Change of key ]
 
 val pull : t -> (change list, [> `Msg of string ]) result Lwt.t
+val push : t -> (unit, [> `Msg of string ]) result Lwt.t
 val size : t -> key -> (int, error) result Lwt.t
