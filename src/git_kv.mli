@@ -68,6 +68,4 @@ module Make (Pclock : Mirage_clock.PCLOCK) : sig
                             | `Hash_not_found of Digestif.SHA1.t
                             | `Reference_not_found of Git.Reference.t
                             | Mirage_kv.write_error ]
-  
-  val size : t -> key -> (int, error) result Lwt.t
 end
