@@ -447,7 +447,7 @@ module Make (Pclock : Mirage_clock.PCLOCK) = struct
     ; email= "git@mirage.io"
     ; date= now (), None }
   
-  let rec unroll_tree t ?head (pred_name, pred_hash) rpath =
+  let rec unroll_tree t ?head (pred_perm, pred_name, pred_hash) rpath =
     let open Lwt.Infix in
     let ( >>? ) = Lwt_result.bind in
     let ( >>! ) x f = match x with
@@ -457,27 +457,27 @@ module Make (Pclock : Mirage_clock.PCLOCK) = struct
     | [] ->
       ( match head with
       | None ->
-        let tree = Git.Tree.(v [ entry ~name:pred_name `Dir pred_hash ]) in
+        let tree = Git.Tree.(v [ entry ~name:pred_name pred_perm pred_hash ]) in
         Store.write t.store (Git.Value.Tree tree) >>? fun (hash, _) -> Lwt.return_ok hash
       | Some head ->
         Search.find t.store head (`Commit (`Path [])) >|= Option.get >>= fun tree_root_hash ->
         ( Store.read_exn t.store tree_root_hash >>= function
         | Git.Value.Tree tree ->
-          let tree = Git.Tree.(add (entry ~name:pred_name `Dir pred_hash) (remove ~name:pred_name tree)) in
+          let tree = Git.Tree.(add (entry ~name:pred_name pred_perm pred_hash) (remove ~name:pred_name tree)) in
           Store.write t.store (Git.Value.Tree tree) >>? fun (hash, _) -> Lwt.return_ok hash
         | _ -> assert false ) )
     | name :: rest ->
       (head >>! fun head -> Search.find t.store head (`Commit (`Path (List.rev rpath)))) >>= function
       | None ->
-        let tree = Git.Tree.(v [ entry ~name:pred_name `Dir pred_hash ]) in
+        let tree = Git.Tree.(v [ entry ~name:pred_name pred_perm pred_hash ]) in
         Store.write t.store (Git.Value.Tree tree) >>? fun (hash, _) ->
-        unroll_tree t ?head (name, hash) rest
+        unroll_tree t ?head (`Dir, name, hash) rest
       | Some tree_hash ->
         ( Store.read_exn t.store tree_hash >>= function
         | Git.Value.Tree tree ->
-          let tree = Git.Tree.(add (entry ~name:pred_name `Dir pred_hash) (remove ~name:pred_name tree)) in
+          let tree = Git.Tree.(add (entry ~name:pred_name pred_perm pred_hash) (remove ~name:pred_name tree)) in
           Store.write t.store (Git.Value.Tree tree) >>? fun (hash, _) ->
-          unroll_tree t ?head (name, hash) rest
+          unroll_tree t ?head (`Dir, name, hash) rest
           | _ -> assert false )
   
   let set ?(push= false) t key contents =
@@ -491,7 +491,7 @@ module Make (Pclock : Mirage_clock.PCLOCK) = struct
       let name = List.hd rpath in
       let open Lwt_result.Infix in
       Store.write t.store (Git.Value.Blob blob) >>= fun (hash, _) ->
-      unroll_tree t ?head:t.head (name, hash) (List.tl rpath) >>= fun tree_root_hash ->
+      unroll_tree t ?head:t.head (`Normal, name, hash) (List.tl rpath) >>= fun tree_root_hash ->
       let committer = author ~now in
       let author = author ~now in
       let parents = Option.value ~default:[] (Option.map (fun head -> [ head ]) t.head) in
@@ -565,7 +565,7 @@ module Make (Pclock : Mirage_clock.PCLOCK) = struct
           let tree = Git.Tree.remove ~name tree in
           let open Lwt_result.Infix in
           Store.write t.store (Git.Value.Tree tree) >>= fun (pred_hash, _) ->
-          unroll_tree t ~head (pred_name, pred_hash) rest >>= fun tree_root_hash ->
+          unroll_tree t ~head (`Dir, pred_name, pred_hash) rest >>= fun tree_root_hash ->
           let committer = author ~now in
           let author = author ~now in
           let commit = Store.Value.Commit.make ~tree:tree_root_hash ~author ~committer
