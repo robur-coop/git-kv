@@ -51,16 +51,6 @@ val pull : t -> (change list, [> `Msg of string ]) result Lwt.t
     [store] Git repository. It returns a list of changes between the old state
     of your store and what you have remotely. *)
 
-val push : t -> (unit, [> `Msg of string ]) result Lwt.t
-(** [push store] tries to push any changes from your local Git repository
-    [store] to the remoe Git repository. The [push] function can fails for many
-    reasons. Currently, we don't handle merge politics and how we can resolve
-    conflicts between local and remote Git repositories. That mostly means that
-    if you are the only one who push to the Git repository (into a specific
-    branch), everything should be fine. But, if someone else push into the same
-    remote Git repository, your change can be discarded by the remote server
-    (due to conflicts). *)
-
 module Make (Pclock : Mirage_clock.PCLOCK) : sig
   include Mirage_kv.RW
     with type t = t
@@ -68,4 +58,8 @@ module Make (Pclock : Mirage_clock.PCLOCK) : sig
                             | `Hash_not_found of Digestif.SHA1.t
                             | `Reference_not_found of Git.Reference.t
                             | Mirage_kv.write_error ]
+
+  val set_and_push : t -> key -> string -> (unit, write_error) result Lwt.t
+  val remove_and_push : t -> key -> (unit, write_error) result Lwt.t
+  val rename_and_push : t -> source:key -> dest:key -> (unit, write_error) result Lwt.t
 end

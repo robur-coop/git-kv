@@ -92,12 +92,6 @@ let pull t =
     t.head <- Some head;
     Lwt.return (Ok diff)
 
-let push t =
-  let open Lwt.Infix in
-  Sync.push ~capabilities ~ctx:t.ctx t.edn t.store [ `Update (t.branch, t.branch) ]
-  >|= Result.map_error (fun err -> `Msg (Fmt.str "error pushing branch %a: %a"
-    Git.Reference.pp t.branch Sync.pp_error err))
-
 let connect ctx endpoint =
   let open Lwt.Infix in
   init_store () >>= fun store ->
@@ -486,7 +480,7 @@ module Make (Pclock : Mirage_clock.PCLOCK) = struct
           unroll_tree t ?head (name, hash) rest
           | _ -> assert false )
   
-  let set t key contents =
+  let set ?(push= false) t key contents =
     let segs = Mirage_kv.Key.segments key in
     let now () = Int64.of_float (Ptime.to_float_s (Ptime.v (Pclock.now_d_ps ()))) in
     match segs with
@@ -504,6 +498,11 @@ module Make (Pclock : Mirage_clock.PCLOCK) = struct
       let commit = Store.Value.Commit.make ~tree:tree_root_hash ~author ~committer
         ~parents (Some "Committed by git-kv") in
       Store.write t.store (Git.Value.Commit commit) >>= fun (hash, _) ->
+      Lwt.Infix.(if push then 
+        Sync.push ~capabilities ~ctx:t.ctx t.edn t.store [ `Update (t.branch, t.branch) ]
+        >|= Result.map_error (fun err -> `Msg (Fmt.str "error pushing branch %a: %a"
+          Git.Reference.pp t.branch Sync.pp_error err))
+        else Lwt.return_ok ()) >>= fun () ->
       Lwt.Infix.(Store.shallow t.store hash >|= Result.ok) >>= fun () ->
       t.head <- Some hash ; Lwt.return_ok ()
   
@@ -513,9 +512,9 @@ module Make (Pclock : Mirage_clock.PCLOCK) = struct
     | `Msg err -> `Msg err
     | err -> Rresult.R.msgf "%a" Store.pp_error err
   
-  let set t key contents =
+  let set ?push t key contents =
     let open Lwt.Infix in
-    set t key contents >|= Rresult.R.reword_error to_write_error
+    set ?push t key contents >|= Rresult.R.reword_error to_write_error
   
   let set_partial t key ~offset chunk =
     let open Lwt_result.Infix in
@@ -529,7 +528,7 @@ module Make (Pclock : Mirage_clock.PCLOCK) = struct
   
   let batch t ?retries:_ f = f t
   
-  let remove t key =
+  let remove ?(push= false) t key =
     let segs = Mirage_kv.Key.segments key in
     let now () = Int64.of_float (Ptime.to_float_s (Ptime.v (Pclock.now_d_ps ()))) in
     match List.rev segs, t.head with
@@ -548,6 +547,11 @@ module Make (Pclock : Mirage_clock.PCLOCK) = struct
       let commit = Store.Value.Commit.make ~tree:tree_root_hash ~author ~committer
         ~parents:[ head ] (Some "Committed by git-kv") in
       Store.write t.store (Git.Value.Commit commit) >>= fun (hash, _) ->
+      Lwt.Infix.(if push then 
+        Sync.push ~capabilities ~ctx:t.ctx t.edn t.store [ `Update (t.branch, t.branch) ]
+        >|= Result.map_error (fun err -> `Msg (Fmt.str "error pushing branch %a: %a"
+          Git.Reference.pp t.branch Sync.pp_error err))
+        else Lwt.return_ok ()) >>= fun () ->
       Lwt.Infix.(Store.shallow t.store hash >|= Result.ok) >>= fun () ->
       t.head <- Some hash ; Lwt.return_ok ()
     | name :: pred_name :: rest, Some head ->
@@ -565,18 +569,30 @@ module Make (Pclock : Mirage_clock.PCLOCK) = struct
           let commit = Store.Value.Commit.make ~tree:tree_root_hash ~author ~committer
             ~parents:[ head ] (Some "Committed by git-kv") in
           Store.write t.store (Git.Value.Commit commit) >>= fun (hash, _) ->
+          Lwt.Infix.(if push then 
+            Sync.push ~capabilities ~ctx:t.ctx t.edn t.store [ `Update (t.branch, t.branch) ]
+            >|= Result.map_error (fun err -> `Msg (Fmt.str "error pushing branch %a: %a"
+              Git.Reference.pp t.branch Sync.pp_error err))
+            else Lwt.return_ok ()) >>= fun () ->
           Lwt.Infix.(Store.shallow t.store hash >|= Result.ok) >>= fun () ->
           t.head <- Some hash ; Lwt.return_ok ()
         | _ -> Lwt.return_ok ()
   
-  let remove t key =
+  let remove ?push t key =
     let open Lwt.Infix in
-    remove t key >|= Rresult.R.reword_error to_write_error
+    remove ?push t key >|= Rresult.R.reword_error to_write_error
   
-  let rename t ~source ~dest =
+  let rename ?(push= false) t ~source ~dest =
     (* TODO(dinosaure): optimize it! It was done on the naive way. *)
     let open Lwt_result.Infix in
     get t source >>= fun contents ->
-    remove t source >>= fun () ->
-    set t dest contents
+    remove ~push t source >>= fun () ->
+    set ~push t dest contents
+
+  let set_and_push t k v = set ~push:true t k v
+  let set t k v = set ~push:false t k v
+  let remove_and_push t k = remove ~push:true t k
+  let remove t k = remove ~push:false t k
+  let rename_and_push t ~source ~dest = rename ~push:true t ~source ~dest
+  let rename t ~source ~dest = rename ~push:false t ~source ~dest
 end
