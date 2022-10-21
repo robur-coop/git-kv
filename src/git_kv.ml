@@ -498,6 +498,7 @@ module Make (Pclock : Mirage_clock.PCLOCK) = struct
       let commit = Store.Value.Commit.make ~tree:tree_root_hash ~author ~committer
         ~parents (Some "Committed by git-kv") in
       Store.write t.store (Git.Value.Commit commit) >>= fun (hash, _) ->
+      Store.Ref.write t.store t.branch (Git.Reference.uid hash) >>= fun () ->
       Lwt.Infix.(if push then 
         Sync.push ~capabilities ~ctx:t.ctx t.edn t.store [ `Update (t.branch, t.branch) ]
         >|= Result.map_error (fun err -> `Msg (Fmt.str "error pushing branch %a: %a"
@@ -547,6 +548,7 @@ module Make (Pclock : Mirage_clock.PCLOCK) = struct
       let commit = Store.Value.Commit.make ~tree:tree_root_hash ~author ~committer
         ~parents:[ head ] (Some "Committed by git-kv") in
       Store.write t.store (Git.Value.Commit commit) >>= fun (hash, _) ->
+      Store.Ref.write t.store t.branch (Git.Reference.uid hash) >>= fun () ->
       Lwt.Infix.(if push then 
         Sync.push ~capabilities ~ctx:t.ctx t.edn t.store [ `Update (t.branch, t.branch) ]
         >|= Result.map_error (fun err -> `Msg (Fmt.str "error pushing branch %a: %a"
@@ -569,6 +571,7 @@ module Make (Pclock : Mirage_clock.PCLOCK) = struct
           let commit = Store.Value.Commit.make ~tree:tree_root_hash ~author ~committer
             ~parents:[ head ] (Some "Committed by git-kv") in
           Store.write t.store (Git.Value.Commit commit) >>= fun (hash, _) ->
+          Store.Ref.write t.store t.branch (Git.Reference.uid hash) >>= fun () ->
           Lwt.Infix.(if push then 
             Sync.push ~capabilities ~ctx:t.ctx t.edn t.store [ `Update (t.branch, t.branch) ]
             >|= Result.map_error (fun err -> `Msg (Fmt.str "error pushing branch %a: %a"
