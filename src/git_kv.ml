@@ -253,7 +253,9 @@ let pack t ~commit stream =
   Lwt.return_unit
 
 let to_octets t = match t.head with
-  | None -> assert false (* TODO(dinosaure): empty PACK file *)
+  | None ->
+    Lwt.return "PACK\000\000\000\002\000\000\000\000\
+                \x02\x9d\x08\x82\x3b\xd8\xa8\xea\xb5\xad\x6a\xc7\x5c\x82\x3c\xfd\x3e\xd3\x1e"
   | Some commit ->
     let buf = Buffer.create 0x100 in
     let stream = Option.iter (Buffer.add_string buf) in
