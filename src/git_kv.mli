@@ -3,7 +3,7 @@
     This module implements the ability to manipulate a Git repository as a
     Key-Value store. It allows you to create a local (in-memory) Git repository
     that can come from either:
-    - a remote Git repository
+    - a remote Git repository (with {!val:connect})
     - a state serialized by the {!val:to_octets} function
 
     The first case is interesting if you want to be synchronised with the
@@ -13,20 +13,21 @@
 
     In the second case, the synchronisation can be done later with {!val:pull}.
 
-    As far as {!val:push} is concerned, a synchronisation with the remote
-    repository is necessary before {b changing} and sending the new information
-    (a use of {!val:Make.set}/{!val:Make.rename} should be preceded by a
-    {!val:pull}). This is because we do not handle conflicts that may exist
-    between your local repository and the remote repository - in other words,
-    if you want to ensure consistency between reading ({!val:pull}) and writing
-    ({!val:push}) to a remote repository, the instance that uses this code
-    should be the only one to handle said remote repository. *)
+    The user can modify the repository (add files, remove files, etc.). He can
+    do this locally and thus assume a possible desynchronisation between the
+    remote repository and what exists locally or he can share these changes
+    with the remote repository with [{set,rename,remove}_and_push].
+
+    In the latter case, the notion of {i merge} and conflicts is not handled by
+    our implementation. This means that if the remote repository is manipulated
+    by another instance than yours, it can result in conflicts that will make
+    the above functions fail. *)
 
 type t
 (** The type of the Git store. *)
 
 val connect : Mimic.ctx -> string -> t Lwt.t
-(** [connect ctx remote] creates a new Git store which synchronizes
+(** [connect ctx remote] creates a new Git store which synchronises
     with [remote] {i via} protocols available into the given [ctx].
 
     @raise [Invalid_argument _] if we can not initialize the store, or if
@@ -47,7 +48,7 @@ type change = [ `Add of Mirage_kv.Key.t
               | `Change of Mirage_kv.Key.t ]
 
 val pull : t -> (change list, [> `Msg of string ]) result Lwt.t
-(** [pull store] tries to synchronize the remote Git repository with your local
+(** [pull store] tries to synchronise the remote Git repository with your local
     [store] Git repository. It returns a list of changes between the old state
     of your store and what you have remotely. *)
 
@@ -60,6 +61,23 @@ module Make (Pclock : Mirage_clock.PCLOCK) : sig
                             | Mirage_kv.write_error ]
 
   val set_and_push : t -> key -> string -> (unit, write_error) result Lwt.t
+  (** [set_and_push t k v] replaces the binding [k -> v] in [t] and pushes this
+      modification to the remote repository. This function can fail on the
+      synchronisation mechanism  if the remote Git repository is {i in advance}
+      of your local repository. It is advisable to use {!val:pull} before. *)
+
   val remove_and_push : t -> key -> (unit, write_error) result Lwt.t
+  (** Same as {!val:remove} with the synchronisation mechanism, see
+      {!val:set_and_push} for more details about possible failures and how to
+      use it. *)
+
   val rename_and_push : t -> source:key -> dest:key -> (unit, write_error) result Lwt.t
+  (** Same as {!val:rename} with the synchronisation mechanism, see
+      {!val:rename_and_push} for more details about possible failures and how
+      to use it. *)
+
+  val set_partial_and_push : t -> key -> offset:int -> string -> (unit, write_error) result Lwt.t
+  (** Same as {!val:set_partial} with the synchronisation mechanism, see
+      {!val:set_and_push} for more details about possible failures and how to
+      use it. *)
 end

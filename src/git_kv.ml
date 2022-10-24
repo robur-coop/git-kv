@@ -517,7 +517,7 @@ module Make (Pclock : Mirage_clock.PCLOCK) = struct
     let open Lwt.Infix in
     set ?push t key contents >|= Rresult.R.reword_error to_write_error
   
-  let set_partial t key ~offset chunk =
+  let set_partial ?push t key ~offset chunk =
     let open Lwt_result.Infix in
     get t key >>= fun contents ->
     let len = String.length contents in
@@ -525,7 +525,7 @@ module Make (Pclock : Mirage_clock.PCLOCK) = struct
     let res = Bytes.make (max len (offset + add)) '\000' in
     Bytes.blit_string contents 0 res 0 len ;
     Bytes.blit_string chunk 0 res offset add ;
-    set t key (Bytes.unsafe_to_string res)
+    set ?push t key (Bytes.unsafe_to_string res)
   
   let batch t ?retries:_ f = f t
   
@@ -592,6 +592,8 @@ module Make (Pclock : Mirage_clock.PCLOCK) = struct
     remove ~push t source >>= fun () ->
     set ~push t dest contents
 
+  let set_partial_and_push t k ~offset v = set_partial ~push:true t k ~offset v
+  let set_partial t k ~offset v = set_partial ~push:false t k ~offset v
   let set_and_push t k v = set ~push:true t k v
   let set t k v = set ~push:false t k v
   let remove_and_push t k = remove ~push:true t k
