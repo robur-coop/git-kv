@@ -60,24 +60,10 @@ module Make (Pclock : Mirage_clock.PCLOCK) : sig
                             | `Reference_not_found of Git.Reference.t
                             | Mirage_kv.write_error ]
 
-  val set_and_push : t -> key -> string -> (unit, write_error) result Lwt.t
-  (** [set_and_push t k v] replaces the binding [k -> v] in [t] and pushes this
-      modification to the remote repository. This function can fail on the
-      synchronisation mechanism  if the remote Git repository is {i in advance}
-      of your local repository. It is advisable to use {!val:pull} before. *)
-
-  val remove_and_push : t -> key -> (unit, write_error) result Lwt.t
-  (** Same as {!val:remove} with the synchronisation mechanism, see
-      {!val:set_and_push} for more details about possible failures and how to
-      use it. *)
-
-  val rename_and_push : t -> source:key -> dest:key -> (unit, write_error) result Lwt.t
-  (** Same as {!val:rename} with the synchronisation mechanism, see
-      {!val:rename_and_push} for more details about possible failures and how
-      to use it. *)
-
-  val set_partial_and_push : t -> key -> offset:int -> string -> (unit, write_error) result Lwt.t
-  (** Same as {!val:set_partial} with the synchronisation mechanism, see
-      {!val:set_and_push} for more details about possible failures and how to
-      use it. *)
+  module Local : sig
+    val set : t -> key -> string -> (unit, write_error) result Lwt.t
+    val remove : t -> key -> (unit, write_error) result Lwt.t
+    val rename : t -> source:key -> dest:key -> (unit, write_error) result Lwt.t
+    val set_partial : t -> key -> offset:int -> string -> (unit, write_error) result Lwt.t
+  end
 end

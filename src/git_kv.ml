@@ -8,6 +8,7 @@ type t =
   ; edn : Smart_git.Endpoint.t
   ; branch : Git.Reference.t
   ; store : Store.t
+  ; mutable batch : bool
   ; mutable head : Store.hash option }
 
 let init_store () =
@@ -97,7 +98,7 @@ let connect ctx endpoint =
   init_store () >>= fun store ->
   let store = to_invalid store in
   let edn, branch = split_url endpoint in
-  let t = { ctx ; edn ; branch ; store ; head = None } in
+  let t = { ctx ; edn ; branch ; store ; batch= false; head = None } in
   pull t >>= fun r ->
   let _r = to_invalid r in
   Lwt.return t
@@ -330,7 +331,7 @@ let of_octets ctx ~remote data =
        >|= Rresult.R.failwith_error_msg >>= fun store ->
        analyze store data >>= fun head ->
        let edn, branch = split_url remote in
-       Lwt.return_ok { ctx ; edn ; branch ; store ; head; })
+       Lwt.return_ok { ctx ; edn ; branch ; store ; batch= false; head; })
     (fun exn ->
        Fmt.epr ">>> Got an exception: %s.\n%!" (Printexc.to_string exn) ;
        Fmt.epr ">>> %s.\n%!"
@@ -480,7 +481,7 @@ module Make (Pclock : Mirage_clock.PCLOCK) = struct
           unroll_tree t ?head (`Dir, name, hash) rest
           | _ -> assert false )
   
-  let set ?(push= false) t key contents =
+  let set ~and_push t key contents =
     let segs = Mirage_kv.Key.segments key in
     let now () = Int64.of_float (Ptime.to_float_s (Ptime.v (Pclock.now_d_ps ()))) in
     match segs with
@@ -499,7 +500,7 @@ module Make (Pclock : Mirage_clock.PCLOCK) = struct
         ~parents (Some "Committed by git-kv") in
       Store.write t.store (Git.Value.Commit commit) >>= fun (hash, _) ->
       Store.Ref.write t.store t.branch (Git.Reference.uid hash) >>= fun () ->
-      Lwt.Infix.(if push then 
+      Lwt.Infix.(if and_push then 
         Sync.push ~capabilities ~ctx:t.ctx t.edn t.store [ `Update (t.branch, t.branch) ]
         >|= Result.map_error (fun err -> `Msg (Fmt.str "error pushing branch %a: %a"
           Git.Reference.pp t.branch Sync.pp_error err))
@@ -513,23 +514,23 @@ module Make (Pclock : Mirage_clock.PCLOCK) = struct
     | `Msg err -> `Msg err
     | err -> Rresult.R.msgf "%a" Store.pp_error err
   
-  let set ?push t key contents =
+  let set ?(and_push= true) t key contents =
     let open Lwt.Infix in
-    set ?push t key contents >|= Rresult.R.reword_error to_write_error
+    let and_push = not t.batch && and_push in
+    set ~and_push t key contents >|= Rresult.R.reword_error to_write_error
   
-  let set_partial ?push t key ~offset chunk =
+  let set_partial ?(and_push= true) t key ~offset chunk =
     let open Lwt_result.Infix in
+    let and_push = not t.batch && and_push in
     get t key >>= fun contents ->
     let len = String.length contents in
     let add = String.length chunk in
     let res = Bytes.make (max len (offset + add)) '\000' in
     Bytes.blit_string contents 0 res 0 len ;
     Bytes.blit_string chunk 0 res offset add ;
-    set ?push t key (Bytes.unsafe_to_string res)
+    set ~and_push t key (Bytes.unsafe_to_string res)
   
-  let batch t ?retries:_ f = f t
-  
-  let remove ?(push= false) t key =
+  let remove ~and_push t key =
     let segs = Mirage_kv.Key.segments key in
     let now () = Int64.of_float (Ptime.to_float_s (Ptime.v (Pclock.now_d_ps ()))) in
     match List.rev segs, t.head with
@@ -549,7 +550,7 @@ module Make (Pclock : Mirage_clock.PCLOCK) = struct
         ~parents:[ head ] (Some "Committed by git-kv") in
       Store.write t.store (Git.Value.Commit commit) >>= fun (hash, _) ->
       Store.Ref.write t.store t.branch (Git.Reference.uid hash) >>= fun () ->
-      Lwt.Infix.(if push then 
+      Lwt.Infix.(if and_push then 
         Sync.push ~capabilities ~ctx:t.ctx t.edn t.store [ `Update (t.branch, t.branch) ]
         >|= Result.map_error (fun err -> `Msg (Fmt.str "error pushing branch %a: %a"
           Git.Reference.pp t.branch Sync.pp_error err))
@@ -572,7 +573,7 @@ module Make (Pclock : Mirage_clock.PCLOCK) = struct
             ~parents:[ head ] (Some "Committed by git-kv") in
           Store.write t.store (Git.Value.Commit commit) >>= fun (hash, _) ->
           Store.Ref.write t.store t.branch (Git.Reference.uid hash) >>= fun () ->
-          Lwt.Infix.(if push then 
+          Lwt.Infix.(if and_push then 
             Sync.push ~capabilities ~ctx:t.ctx t.edn t.store [ `Update (t.branch, t.branch) ]
             >|= Result.map_error (fun err -> `Msg (Fmt.str "error pushing branch %a: %a"
               Git.Reference.pp t.branch Sync.pp_error err))
@@ -581,23 +582,42 @@ module Make (Pclock : Mirage_clock.PCLOCK) = struct
           t.head <- Some hash ; Lwt.return_ok ()
         | _ -> Lwt.return_ok ()
   
-  let remove ?push t key =
+  let remove ?(and_push= true) t key =
     let open Lwt.Infix in
-    remove ?push t key >|= Rresult.R.reword_error to_write_error
+    let and_push = not t.batch && and_push in
+    remove ~and_push t key >|= Rresult.R.reword_error to_write_error
   
-  let rename ?(push= false) t ~source ~dest =
+  let rename ?(and_push= true) t ~source ~dest =
     (* TODO(dinosaure): optimize it! It was done on the naive way. *)
     let open Lwt_result.Infix in
     get t source >>= fun contents ->
-    remove ~push t source >>= fun () ->
-    set ~push t dest contents
+    remove ~and_push t source >>= fun () ->
+    set ~and_push t dest contents
 
-  let set_partial_and_push t k ~offset v = set_partial ~push:true t k ~offset v
-  let set_partial t k ~offset v = set_partial ~push:false t k ~offset v
-  let set_and_push t k v = set ~push:true t k v
-  let set t k v = set ~push:false t k v
-  let remove_and_push t k = remove ~push:true t k
-  let remove t k = remove ~push:false t k
-  let rename_and_push t ~source ~dest = rename ~push:true t ~source ~dest
-  let rename t ~source ~dest = rename ~push:false t ~source ~dest
+  let batch t ?(retries= 3) f =
+    let open Lwt.Infix in
+    if retries < 0
+    then Fmt.invalid_arg "Git_kv.Make.batch: retries must be equal or greater than 0" ;
+    t.batch <- true ;
+    f t >>= fun res ->
+    let rec force_push limit =
+      Sync.push ~capabilities ~ctx:t.ctx t.edn t.store [ `Update (t.branch, t.branch) ] >>= function
+      | Ok () -> Lwt.return_unit
+      | Error _ when limit > 0 -> force_push (pred limit)
+      | Error err ->
+        Fmt.failwith "error pushing branch %a: %a" Git.Reference.pp t.branch Sync.pp_error err in
+    force_push retries >>= fun () ->
+    t.batch <- false ; Lwt.return res
+
+  module Local = struct
+    let set_partial t k ~offset v = set_partial ~and_push:false t k ~offset v
+    let set t k v = set ~and_push:false t k v
+    let remove t k = remove ~and_push:false t k
+    let rename t ~source ~dest = rename ~and_push:false t ~source ~dest
+  end
+
+  let set_partial t k ~offset v = set_partial ~and_push:true t k ~offset v
+  let set t k v = set ~and_push:true t k v
+  let remove t k = remove ~and_push:true t k
+  let rename t ~source ~dest = rename ~and_push:true t ~source ~dest
 end
