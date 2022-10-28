@@ -486,6 +486,8 @@ module Make (Pclock : Mirage_clock.PCLOCK) = struct
     | Some th -> match Lwt.state th with
       | Sleep -> true
       | Return _ | Fail _ -> false
+
+  let ( >>? ) = Lwt_result.bind
   
   let set ~and_push t key contents =
     let segs = Mirage_kv.Key.segments key in
@@ -510,7 +512,7 @@ module Make (Pclock : Mirage_clock.PCLOCK) = struct
         Sync.push ~capabilities ~ctx:t.ctx t.edn t.store [ `Update (t.branch, t.branch) ]
         >|= Result.map_error (fun err -> `Msg (Fmt.str "error pushing branch %a: %a"
           Git.Reference.pp t.branch Sync.pp_error err))
-        >>= Store.shallow t.store hash >|= Result.ok
+        >>? fun () -> (Store.shallow t.store hash >|= Result.ok)
         else Lwt.return_ok ()) >>= fun () ->
       t.head <- Some hash ; Lwt.return_ok ()
   
@@ -560,7 +562,7 @@ module Make (Pclock : Mirage_clock.PCLOCK) = struct
         Sync.push ~capabilities ~ctx:t.ctx t.edn t.store [ `Update (t.branch, t.branch) ]
         >|= Result.map_error (fun err -> `Msg (Fmt.str "error pushing branch %a: %a"
           Git.Reference.pp t.branch Sync.pp_error err))
-        >>= Store.shallow t.store hash >|= Result.ok
+        >>? fun () -> Store.shallow t.store hash >|= Result.ok
         else Lwt.return_ok ()) >>= fun () ->
       t.head <- Some hash ; Lwt.return_ok ()
     | name :: pred_name :: rest, Some head ->
@@ -583,7 +585,7 @@ module Make (Pclock : Mirage_clock.PCLOCK) = struct
             Sync.push ~capabilities ~ctx:t.ctx t.edn t.store [ `Update (t.branch, t.branch) ]
             >|= Result.map_error (fun err -> `Msg (Fmt.str "error pushing branch %a: %a"
               Git.Reference.pp t.branch Sync.pp_error err))
-            >>= Store.shallow t.store hash >|= Result.ok
+            >>? fun () -> Store.shallow t.store hash >|= Result.ok
             else Lwt.return_ok ()) >>= fun () ->
           t.head <- Some hash ; Lwt.return_ok ()
         | _ -> Lwt.return_ok ()
@@ -612,7 +614,10 @@ module Make (Pclock : Mirage_clock.PCLOCK) = struct
     f t >>= fun res ->
     let rec force_push limit =
       Sync.push ~capabilities ~ctx:t.ctx t.edn t.store [ `Update (t.branch, t.branch) ] >>= function
-      | Ok () -> Lwt.return_unit
+      | Ok () ->
+        ( match t.head with
+        | None -> Lwt.return_unit
+        | Some hash -> Store.shallow t.store hash )              
       | Error _ when limit > 0 -> force_push (pred limit)
       | Error err ->
         Fmt.failwith "error pushing branch %a: %a" Git.Reference.pp t.branch Sync.pp_error err in
