@@ -31,11 +31,11 @@
     remotely, the commit-graph given by the transmission, and your last commit.
     In that way, our [push] is most similar to a [git push --force]!
     
-    To save I/O, the {!val:Make.batch} operation allows you to do some change
-    into a closure and the implementation will push only at the end of this
-    closure. By this way, you can {!val:Make.set}, {!val:Make.rename} or
-    {!val:Make.remove} without a systematic [push] on these actions. Only one
-    will be done at the end of your closure.
+    To save I/O, the {!val:Make.change_and_push} operation allows you to do
+    some change into a closure and the implementation will push only at the end
+    of this closure. By this way, you can {!val:Make.set}, {!val:Make.rename}
+    or {!val:Make.remove} without a systematic [push] on these actions. Only
+    one will be done at the end of your closure.
 
     {2: Serialization of the Git repository.}
     
@@ -83,6 +83,11 @@ module Make (Pclock : Mirage_clock.PCLOCK) : sig
                             | `Hash_not_found of Digestif.SHA1.t
                             | `Reference_not_found of Git.Reference.t
                             | Mirage_kv.write_error ]
+
+  val change_and_push : t -> (t -> 'a Lwt.t) -> 'a Lwt.t
+  (** [change_and_push store f] lets the user to do some changes into [f] and
+      only push commits at the end of [f]. It saves I/O if the user wants to
+      do multiple changes without pushing every times. *)
 
   module Local : sig
     val set : t -> key -> string -> (unit, write_error) result Lwt.t

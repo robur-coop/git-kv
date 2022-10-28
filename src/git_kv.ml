@@ -607,7 +607,7 @@ module Make (Pclock : Mirage_clock.PCLOCK) = struct
     remove ~and_push t source >>= fun () ->
     set ~and_push t dest contents
 
-  let batch t ?retries:_ f =
+  let change_and_push t f =
     let open Lwt.Infix in
     ( match t.batch with
     | None -> Lwt.return_unit
@@ -624,6 +624,8 @@ module Make (Pclock : Mirage_clock.PCLOCK) = struct
       Fmt.failwith "error pushing branch %a: %a" Git.Reference.pp t.branch Sync.pp_error err ) >>= fun () ->
     Lwt.wakeup_later wk () ;
     Lwt.return res
+
+  let batch t ?retries:_ f = f t
 
   module Local = struct
     let set_partial t k ~offset v = set_partial ~and_push:false t k ~offset v
