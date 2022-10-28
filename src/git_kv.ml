@@ -510,8 +510,8 @@ module Make (Pclock : Mirage_clock.PCLOCK) = struct
         Sync.push ~capabilities ~ctx:t.ctx t.edn t.store [ `Update (t.branch, t.branch) ]
         >|= Result.map_error (fun err -> `Msg (Fmt.str "error pushing branch %a: %a"
           Git.Reference.pp t.branch Sync.pp_error err))
+        >>= Store.shallow t.store hash >|= Result.ok
         else Lwt.return_ok ()) >>= fun () ->
-      Lwt.Infix.(Store.shallow t.store hash >|= Result.ok) >>= fun () ->
       t.head <- Some hash ; Lwt.return_ok ()
   
   let to_write_error (error : Store.error) = match error with
@@ -560,8 +560,8 @@ module Make (Pclock : Mirage_clock.PCLOCK) = struct
         Sync.push ~capabilities ~ctx:t.ctx t.edn t.store [ `Update (t.branch, t.branch) ]
         >|= Result.map_error (fun err -> `Msg (Fmt.str "error pushing branch %a: %a"
           Git.Reference.pp t.branch Sync.pp_error err))
+        >>= Store.shallow t.store hash >|= Result.ok
         else Lwt.return_ok ()) >>= fun () ->
-      Lwt.Infix.(Store.shallow t.store hash >|= Result.ok) >>= fun () ->
       t.head <- Some hash ; Lwt.return_ok ()
     | name :: pred_name :: rest, Some head ->
       let open Lwt.Infix in
@@ -583,8 +583,8 @@ module Make (Pclock : Mirage_clock.PCLOCK) = struct
             Sync.push ~capabilities ~ctx:t.ctx t.edn t.store [ `Update (t.branch, t.branch) ]
             >|= Result.map_error (fun err -> `Msg (Fmt.str "error pushing branch %a: %a"
               Git.Reference.pp t.branch Sync.pp_error err))
+            >>= Store.shallow t.store hash >|= Result.ok
             else Lwt.return_ok ()) >>= fun () ->
-          Lwt.Infix.(Store.shallow t.store hash >|= Result.ok) >>= fun () ->
           t.head <- Some hash ; Lwt.return_ok ()
         | _ -> Lwt.return_ok ()
   
