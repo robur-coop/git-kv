@@ -46,20 +46,27 @@ let _ =
 ```
 
 The user can manipulate the repository as an [RW][mirage-kv-rw] repository. Any
-change to the repository requires a new commit. These changes can be sent to
-the remote repository by deriving manipulation functions with the `and_push`
-suffix:
+change to the repository requires a new commit. These changes will be sent to
+the remote repository by default. If the user does not want to push modifications,
+they can use `Git_kv.Make.Local` which provide functions without `push`. If the
+user knows that they will do many changes and they don't want to change all of
+them and do a `push` only at the end, they can use `Git_kv.Make.batch`.
 ```ocaml
 module Store = Git_kv.Make (Pclock)
 
-let new_file_locally t =
+let new_file_locally_and_remotely t =
   Store.set t Mirage_kv.Key.(empty / "foo") "foo" >>= fun () ->
   ...
 
-let new_file_locally_and_remotely t =
+let new_file_locally t =
   Git_kv.pull t >>= fun _diff ->
-  Store.set_and_push t Mirage_kv.Key.(empty / "foo") "foo" >>= fun () ->
+  Store.Local.set t Mirage_kv.Key.(empty / "foo") "foo" >>= fun () ->
   ...
+
+let batch_operations t =
+  Store.batch t @@ fun t ->
+  Store.set t Mirage_kv.Key.(empty / "bar") "bar" >>= fun () ->
+  Store.remove t Mirage_kv.Key.(empty / "foo")
 ```
 
 [mimic]: https://dinosaure.github.io/mimic/mimic/index.html
