@@ -71,7 +71,15 @@ let diff store commit0 commit1 = match commit0 with
 
 let pull t =
   let open Lwt.Infix in
-  Sync.fetch ~capabilities ~ctx:t.ctx t.edn t.store ~deepen:(`Depth 1) (`Some [ t.branch, t.branch ]) >>= fun r ->
+  ( match t.head with
+  | None -> Lwt.return (`Depth 1)
+  | Some head ->
+    Store.read_exn t.store head >>= fun value ->
+    let[@warning "-8"] Git.Value.Commit commit = value in
+    (* TODO(dinosaure): we should handle correctly [tz] and re-calculate the timestamp. *)
+    let { Git.User.date= (timestamp, _tz); _ } = Store.Value.Commit.author commit in
+    Lwt.return (`Timestamp timestamp) ) >>= fun deepen ->
+  Sync.fetch ~capabilities ~ctx:t.ctx t.edn t.store ~deepen (`Some [ t.branch, t.branch ]) >>= fun r ->
   let data =
     Result.map_error
       (fun e -> `Msg (Fmt.str "error fetching: %a" Sync.pp_error e))
@@ -80,18 +88,15 @@ let pull t =
   match data with
   | Error _ as e -> Lwt.return e
   | Ok None -> Lwt.return (Ok [])
-  | Ok Some (_, _) ->
-    Store.Ref.resolve t.store t.branch >>= fun r ->
-    let head =
-      Result.map_error
-        (fun e -> `Msg (Fmt.str "error resolving branch %a: %a"
-                          Git.Reference.pp t.branch
-                          Store.pp_error e))
-        r |> to_invalid
-    in
-    diff t.store t.head head >>= fun diff ->
-    t.head <- Some head;
-    Lwt.return (Ok diff)
+  | Ok Some (_, refs) -> match List.find (fun (r, _) -> Git.Reference.equal r t.branch) refs with
+    | (_, head) ->
+      Store.shallow t.store head >>= fun () ->
+      (* XXX(dinosaure): the shallow must be done **before** the diff. Otherwise
+         we will compare [commit0] with [commit0 <- commit1]. We want to compare
+         [commit0] and [commit1] (only). *)
+      diff t.store t.head head >>= fun diff ->
+      t.head <- Some head ; Lwt.return (Ok diff)
+    | exception Not_found -> Lwt.return_error (`Msg (Fmt.str "error fetching: %a does not exist" Git.Reference.pp t.branch))
 
 let connect ctx endpoint =
   let open Lwt.Infix in
