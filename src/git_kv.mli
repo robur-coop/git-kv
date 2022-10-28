@@ -3,7 +3,7 @@
     This module implements the ability to manipulate a Git repository as a
     Key-Value store. It allows you to create a local (in-memory) Git repository
     that can come from either:
-    - a remote Git repository
+    - a remote Git repository (with {!val:connect})
     - a state serialized by the {!val:to_octets} function
 
     The first case is interesting if you want to be synchronised with the
@@ -13,20 +13,45 @@
 
     In the second case, the synchronisation can be done later with {!val:pull}.
 
-    As far as {!val:push} is concerned, a synchronisation with the remote
-    repository is necessary before {b changing} and sending the new information
-    (a use of {!val:Make.set}/{!val:Make.rename} should be preceded by a
-    {!val:pull}). This is because we do not handle conflicts that may exist
-    between your local repository and the remote repository - in other words,
-    if you want to ensure consistency between reading ({!val:pull}) and writing
-    ({!val:push}) to a remote repository, the instance that uses this code
-    should be the only one to handle said remote repository. *)
+    {2: Pushing and synchronisation.}
+
+    The user can modify the repository (add files, remove files, etc.). They
+    can do this locally (with the {!module:Make.Local} module) and thus assume
+    a possible desynchronisation between the remote repository and what exists
+    locally or they can share these changes with the remote repository (default
+    behavior).
+
+    In the latter case, the notion of {i merge} and conflicts is not handled by
+    our implementation. This means that if the remote repository is manipulated
+    by another instance than yours, it can result in conflicts that will make
+    the above functions fail.
+
+    The only check done by the remote Git repository when you want to submit
+    your change is the ability to find a path between a commit available
+    remotely, the commit-graph given by the transmission, and your last commit.
+    In that way, our [push] is most similar to a [git push --force]!
+    
+    To save I/O, the {!val:Make.batch} operation allows you to do some change
+    into a closure and the implementation will push only at the end of this
+    closure. By this way, you can {!val:Make.set}, {!val:Make.rename} or
+    {!val:Make.remove} without a systematic [push] on these actions. Only one
+    will be done at the end of your closure.
+
+    {2: Serialization of the Git repository.}
+    
+    Finally, the KV-store tries to keep the minimal set of commits required
+    between you and the remote repository. In other words, only {i un}pushed
+    changes are kept by the KV-store. However, if these changes are not pushed,
+    they will be stored into the final state produced by {!val:to_octets}. In
+    other words, the more changes you make out of sync with the remote
+    repository (without pushing them), the bigger the state serialization will
+    be. *)
 
 type t
 (** The type of the Git store. *)
 
 val connect : Mimic.ctx -> string -> t Lwt.t
-(** [connect ctx remote] creates a new Git store which synchronizes
+(** [connect ctx remote] creates a new Git store which synchronises
     with [remote] {i via} protocols available into the given [ctx].
 
     @raise [Invalid_argument _] if we can not initialize the store, or if
@@ -47,19 +72,9 @@ type change = [ `Add of Mirage_kv.Key.t
               | `Change of Mirage_kv.Key.t ]
 
 val pull : t -> (change list, [> `Msg of string ]) result Lwt.t
-(** [pull store] tries to synchronize the remote Git repository with your local
+(** [pull store] tries to synchronise the remote Git repository with your local
     [store] Git repository. It returns a list of changes between the old state
     of your store and what you have remotely. *)
-
-val push : t -> (unit, [> `Msg of string ]) result Lwt.t
-(** [push store] tries to push any changes from your local Git repository
-    [store] to the remoe Git repository. The [push] function can fails for many
-    reasons. Currently, we don't handle merge politics and how we can resolve
-    conflicts between local and remote Git repositories. That mostly means that
-    if you are the only one who push to the Git repository (into a specific
-    branch), everything should be fine. But, if someone else push into the same
-    remote Git repository, your change can be discarded by the remote server
-    (due to conflicts). *)
 
 module Make (Pclock : Mirage_clock.PCLOCK) : sig
   include Mirage_kv.RW
@@ -68,4 +83,11 @@ module Make (Pclock : Mirage_clock.PCLOCK) : sig
                             | `Hash_not_found of Digestif.SHA1.t
                             | `Reference_not_found of Git.Reference.t
                             | Mirage_kv.write_error ]
+
+  module Local : sig
+    val set : t -> key -> string -> (unit, write_error) result Lwt.t
+    val remove : t -> key -> (unit, write_error) result Lwt.t
+    val rename : t -> source:key -> dest:key -> (unit, write_error) result Lwt.t
+    val set_partial : t -> key -> offset:int -> string -> (unit, write_error) result Lwt.t
+  end
 end
