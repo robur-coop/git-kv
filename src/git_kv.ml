@@ -602,26 +602,21 @@ module Make (Pclock : Mirage_clock.PCLOCK) = struct
     remove ~and_push t source >>= fun () ->
     set ~and_push t dest contents
 
-  let batch t ?(retries= 3) f =
+  let batch t ?retries:_ f =
     let open Lwt.Infix in
-    if retries < 0
-    then Fmt.invalid_arg "Git_kv.Make.batch: retries must be equal or greater than 0" ;
     ( match t.batch with
     | None -> Lwt.return_unit
     | Some th -> th ) >>= fun () ->
     let th, wk = Lwt.wait () in
     t.batch <- Some th ;
     f t >>= fun res ->
-    let rec force_push limit =
-      Sync.push ~capabilities ~ctx:t.ctx t.edn t.store [ `Update (t.branch, t.branch) ] >>= function
-      | Ok () ->
-        ( match t.head with
-        | None -> Lwt.return_unit
-        | Some hash -> Store.shallow t.store hash )              
-      | Error _ when limit > 0 -> force_push (pred limit)
-      | Error err ->
-        Fmt.failwith "error pushing branch %a: %a" Git.Reference.pp t.branch Sync.pp_error err in
-    force_push retries >>= fun () ->
+    ( Sync.push ~capabilities ~ctx:t.ctx t.edn t.store [ `Update (t.branch, t.branch) ] >>= function
+    | Ok () ->
+      ( match t.head with
+      | None -> Lwt.return_unit
+      | Some hash -> Store.shallow t.store hash )              
+    | Error err ->
+      Fmt.failwith "error pushing branch %a: %a" Git.Reference.pp t.branch Sync.pp_error err ) >>= fun () ->
     Lwt.wakeup_later wk () ;
     Lwt.return res
 
