@@ -630,23 +630,26 @@ module Make (Pclock : Mirage_clock.PCLOCK) = struct
       (* XXX(dinosaure): we assume that only [batch] can reset [t.committed] to [None] and
          we ensured that [batch] can not be called into [f]. So we are sure that [t'.committed]
          must be [Some _] in anyway. *)
-      let[@warning "-8"] Some (tree_root_hash, _) = t'.committed in
-      let action    = Option.fold ~none:(`Create t.branch) ~some:(fun _ -> `Update (t.branch, t.branch)) t.head in
-      let parents   = Option.value ~default:[] (Option.map (fun head -> [ head ]) t.head) in
-      let committer = author ~now in
-      let author    = author ~now in
-      let commit    = Store.Value.Commit.make ~tree:tree_root_hash ~author ~committer
-        ~parents (Some "Committed by git-kv") in
-      Store.write t.store (Git.Value.Commit commit) >>= fun (hash, _) ->
-      t.head <- Some hash ;
-      Store.Ref.write t.store t.branch (Git.Reference.uid hash) >>= fun () ->
-      Lwt.Infix.(Sync.push ~capabilities ~ctx:t.ctx t.edn t.store [ action ]
-        >|= Result.map_error (fun err ->
-          `Msg (Fmt.str "error pushing branch %a: %a"
-          Git.Reference.pp t.branch Sync.pp_error err))
-        >>? fun () ->
-        Store.shallow t.store hash >|= Result.ok) >>= fun () ->
-        Lwt.return_ok res )
+      let[@warning "-8"] Some (new_tree_root_hash, _) = t'.committed in
+      if Digestif.SHA1.equal new_tree_root_hash tree_root_hash
+      then Lwt.return_ok res (* XXX(dinosaure): nothing to send! *)
+      else
+        let action    = Option.fold ~none:(`Create t.branch) ~some:(fun _ -> `Update (t.branch, t.branch)) t.head in
+        let parents   = Option.value ~default:[] (Option.map (fun head -> [ head ]) t.head) in
+        let committer = author ~now in
+        let author    = author ~now in
+        let commit    = Store.Value.Commit.make ~tree:new_tree_root_hash ~author ~committer
+          ~parents (Some "Committed by git-kv") in
+        Store.write t.store (Git.Value.Commit commit) >>= fun (hash, _) ->
+        t.head <- Some hash ;
+        Store.Ref.write t.store t.branch (Git.Reference.uid hash) >>= fun () ->
+        Lwt.Infix.(Sync.push ~capabilities ~ctx:t.ctx t.edn t.store [ action ]
+          >|= Result.map_error (fun err ->
+            `Msg (Fmt.str "error pushing branch %a: %a"
+            Git.Reference.pp t.branch Sync.pp_error err))
+          >>? fun () ->
+          Store.shallow t.store hash >|= Result.ok) >>= fun () ->
+          Lwt.return_ok res )
     >|= Rresult.R.reword_error (msgf "%a" Store.pp_error)
     >|= Rresult.R.failwith_error_msg >>= fun res ->
     Lwt.wakeup_later wk () ;
