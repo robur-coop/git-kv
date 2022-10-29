@@ -83,16 +83,4 @@ module Make (Pclock : Mirage_clock.PCLOCK) : sig
                             | `Hash_not_found of Digestif.SHA1.t
                             | `Reference_not_found of Git.Reference.t
                             | Mirage_kv.write_error ]
-
-  val change_and_push : t -> (t -> 'a Lwt.t) -> 'a Lwt.t
-  (** [change_and_push store f] lets the user to do some changes into [f] and
-      only push commits at the end of [f]. It saves I/O if the user wants to
-      do multiple changes without pushing every times. *)
-
-  module Local : sig
-    val set : t -> key -> string -> (unit, write_error) result Lwt.t
-    val remove : t -> key -> (unit, write_error) result Lwt.t
-    val rename : t -> source:key -> dest:key -> (unit, write_error) result Lwt.t
-    val set_partial : t -> key -> offset:int -> string -> (unit, write_error) result Lwt.t
-  end
 end

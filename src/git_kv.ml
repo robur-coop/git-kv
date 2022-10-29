@@ -8,7 +8,8 @@ type t =
   ; edn : Smart_git.Endpoint.t
   ; branch : Git.Reference.t
   ; store : Store.t
-  ; mutable batch : unit Lwt.t option
+  ; mutable committed : (Digestif.SHA1.t * unit Lwt.t) option
+  ; in_closure : bool
   ; mutable head : Store.hash option }
 
 let init_store () =
@@ -19,6 +20,7 @@ let init_store () =
     r
 
 let main = Git.Reference.v "refs/heads/main"
+let msgf fmt = Fmt.kstr (fun msg -> `Msg msg) fmt
 
 let capabilities =
   [ `Side_band_64k; `Multi_ack_detailed; `Ofs_delta; `Thin_pack; `Report_status ]
@@ -103,7 +105,7 @@ let connect ctx endpoint =
   init_store () >>= fun store ->
   let store = to_invalid store in
   let edn, branch = split_url endpoint in
-  let t = { ctx ; edn ; branch ; store ; batch= None; head= None } in
+  let t = { ctx ; edn ; branch ; store ; committed= None; in_closure= false; head= None } in
   pull t >>= fun r ->
   let _r = to_invalid r in
   Lwt.return t
@@ -180,6 +182,7 @@ let ( <.> ) f g = fun x -> f (g x)
 let ( >>? ) x f = let open Lwt.Infix in match x with
   | Some x -> f x >>= fun v -> Lwt.return_some v
   | None -> Lwt.return_none
+let ( >>! ) x f = Lwt.Infix.(x >>= f)
 
 let pack t ~commit stream =
   let open Lwt.Infix in
@@ -336,7 +339,7 @@ let of_octets ctx ~remote data =
        >|= Rresult.R.failwith_error_msg >>= fun store ->
        analyze store data >>= fun head ->
        let edn, branch = split_url remote in
-       Lwt.return_ok { ctx ; edn ; branch ; store ; batch= None; head; })
+       Lwt.return_ok { ctx ; edn ; branch ; store ; committed= None; in_closure= false; head; })
     (fun exn ->
        Fmt.epr ">>> Got an exception: %s.\n%!" (Printexc.to_string exn) ;
        Fmt.epr ">>> %s.\n%!"
@@ -453,73 +456,77 @@ module Make (Pclock : Mirage_clock.PCLOCK) = struct
     ; email= "git@mirage.io"
     ; date= now (), None }
   
-  let rec unroll_tree t ?head (pred_perm, pred_name, pred_hash) rpath =
+  let rec unroll_tree t ~tree_root_hash (pred_perm, pred_name, pred_hash) rpath =
     let open Lwt.Infix in
     let ( >>? ) = Lwt_result.bind in
-    let ( >>! ) x f = match x with
-      | Some x -> f x
-      | None -> Lwt.return_none in
     match rpath with
     | [] ->
-      ( match head with
-      | None ->
-        let tree = Git.Tree.(v [ entry ~name:pred_name pred_perm pred_hash ]) in
+      ( Store.read_exn t.store tree_root_hash >>= function
+      | Git.Value.Tree tree ->
+        let tree = Git.Tree.(add (entry ~name:pred_name pred_perm pred_hash) (remove ~name:pred_name tree)) in
         Store.write t.store (Git.Value.Tree tree) >>? fun (hash, _) -> Lwt.return_ok hash
-      | Some head ->
-        Search.find t.store head (`Commit (`Path [])) >|= Option.get >>= fun tree_root_hash ->
-        ( Store.read_exn t.store tree_root_hash >>= function
-        | Git.Value.Tree tree ->
-          let tree = Git.Tree.(add (entry ~name:pred_name pred_perm pred_hash) (remove ~name:pred_name tree)) in
-          Store.write t.store (Git.Value.Tree tree) >>? fun (hash, _) -> Lwt.return_ok hash
-        | _ -> assert false ) )
+      | _ -> assert false )
     | name :: rest ->
-      (head >>! fun head -> Search.find t.store head (`Commit (`Path (List.rev rpath)))) >>= function
+      Search.find t.store tree_root_hash (`Path (List.rev rpath)) >>= function
       | None ->
         let tree = Git.Tree.(v [ entry ~name:pred_name pred_perm pred_hash ]) in
         Store.write t.store (Git.Value.Tree tree) >>? fun (hash, _) ->
-        unroll_tree t ?head (`Dir, name, hash) rest
+        unroll_tree t ~tree_root_hash (`Dir, name, hash) rest
       | Some tree_hash ->
         ( Store.read_exn t.store tree_hash >>= function
         | Git.Value.Tree tree ->
           let tree = Git.Tree.(add (entry ~name:pred_name pred_perm pred_hash) (remove ~name:pred_name tree)) in
           Store.write t.store (Git.Value.Tree tree) >>? fun (hash, _) ->
-          unroll_tree t ?head (`Dir, name, hash) rest
+          unroll_tree t ~tree_root_hash (`Dir, name, hash) rest
           | _ -> assert false )
 
-  let no_batch = function
-    | None -> true
-    | Some th -> match Lwt.state th with
-      | Sleep -> true
-      | Return _ | Fail _ -> false
+  let tree_root_hash_of_store t =
+    match t.committed, t.head with
+    | Some (tree_root_hash, _), _ -> Lwt.return_ok tree_root_hash
+    | None, None ->
+      let open Lwt_result.Infix in
+      let tree = Store.Value.Tree.v [] in
+      Store.write t.store (Git.Value.Tree tree) >>= fun (hash, _) ->
+      Lwt.return_ok hash
+    | None, Some commit ->
+      let open Lwt.Infix in
+      Store.read_exn t.store commit >>= function
+      | Git.Value.Commit commit -> Lwt.return_ok (Store.Value.Commit.tree commit)
+      | _ -> Lwt.return_error (msgf "The current HEAD value (%a) is not a commit" Digestif.SHA1.pp commit)
 
   let ( >>? ) = Lwt_result.bind
+  let now () = Int64.of_float (Ptime.to_float_s (Ptime.v (Pclock.now_d_ps ())))
   
-  let set ~and_push t key contents =
+  let set ?and_commit t key contents =
     let segs = Mirage_kv.Key.segments key in
-    let now () = Int64.of_float (Ptime.to_float_s (Ptime.v (Pclock.now_d_ps ()))) in
     match segs with
-    | [] -> assert false
+    | [] -> assert false (* TODO *)
     | path ->
       let blob = Git.Blob.of_string contents in
       let rpath = List.rev path in
       let name = List.hd rpath in
       let open Lwt_result.Infix in
       Store.write t.store (Git.Value.Blob blob) >>= fun (hash, _) ->
-      unroll_tree t ?head:t.head (`Normal, name, hash) (List.tl rpath) >>= fun tree_root_hash ->
-      let committer = author ~now in
-      let author = author ~now in
-      let parents = Option.value ~default:[] (Option.map (fun head -> [ head ]) t.head) in
-      let commit = Store.Value.Commit.make ~tree:tree_root_hash ~author ~committer
-        ~parents (Some "Committed by git-kv") in
-      Store.write t.store (Git.Value.Commit commit) >>= fun (hash, _) ->
-      Store.Ref.write t.store t.branch (Git.Reference.uid hash) >>= fun () ->
-      Lwt.Infix.(if and_push then 
-        Sync.push ~capabilities ~ctx:t.ctx t.edn t.store [ `Update (t.branch, t.branch) ]
-        >|= Result.map_error (fun err -> `Msg (Fmt.str "error pushing branch %a: %a"
-          Git.Reference.pp t.branch Sync.pp_error err))
-        >>? fun () -> (Store.shallow t.store hash >|= Result.ok)
-        else Lwt.return_ok ()) >>= fun () ->
-      t.head <- Some hash ; Lwt.return_ok ()
+      tree_root_hash_of_store t >>= fun tree_root_hash ->
+      unroll_tree t ~tree_root_hash (`Normal, name, hash) (List.tl rpath) >>= fun tree_root_hash ->
+      match and_commit with
+      | Some (_old_tree_root_hash, th) ->
+        t.committed <- Some (tree_root_hash, th) ;
+        Lwt.return_ok ()
+      | None ->
+        let committer = author ~now in
+        let author    = author ~now in
+        let action    = Option.fold ~none:(`Create t.branch) ~some:(fun _ -> `Update (t.branch, t.branch)) t.head in
+        let parents   = Option.value ~default:[] (Option.map (fun head -> [ head ]) t.head) in
+        let commit    = Store.Value.Commit.make ~tree:tree_root_hash ~author ~committer
+          ~parents (Some "Committed by git-kv") in
+        Store.write t.store (Git.Value.Commit commit) >>= fun (hash, _) ->
+        Store.Ref.write t.store t.branch (Git.Reference.uid hash) >>= fun () ->
+        Lwt.Infix.(Sync.push ~capabilities ~ctx:t.ctx t.edn t.store [ action ]
+          >|= Result.map_error (fun err -> `Msg (Fmt.str "error pushing branch %a: %a"
+            Git.Reference.pp t.branch Sync.pp_error err))
+          >>? fun () -> Store.shallow t.store hash >|= Result.ok) >>= fun () ->
+        t.head <- Some hash ; Lwt.return_ok ()
   
   let to_write_error (error : Store.error) = match error with
     | `Not_found hash -> `Hash_not_found hash
@@ -527,115 +534,122 @@ module Make (Pclock : Mirage_clock.PCLOCK) = struct
     | `Msg err -> `Msg err
     | err -> Rresult.R.msgf "%a" Store.pp_error err
   
-  let set ?(and_push= true) t key contents =
+  let set t key contents =
     let open Lwt.Infix in
-    let and_push = no_batch t.batch && and_push in
-    set ~and_push t key contents >|= Rresult.R.reword_error to_write_error
+    set ?and_commit:t.committed t key contents
+    >|= Rresult.R.reword_error to_write_error
   
-  let set_partial ?(and_push= true) t key ~offset chunk =
+  let set_partial t key ~offset chunk =
     let open Lwt_result.Infix in
-    let and_push = no_batch t.batch && and_push in
     get t key >>= fun contents ->
     let len = String.length contents in
     let add = String.length chunk in
     let res = Bytes.make (max len (offset + add)) '\000' in
     Bytes.blit_string contents 0 res 0 len ;
     Bytes.blit_string chunk 0 res offset add ;
-    set ~and_push t key (Bytes.unsafe_to_string res)
+    set t key (Bytes.unsafe_to_string res)
   
-  let remove ~and_push t key =
+  let remove ?and_commit t key =
     let segs = Mirage_kv.Key.segments key in
-    let now () = Int64.of_float (Ptime.to_float_s (Ptime.v (Pclock.now_d_ps ()))) in
     match List.rev segs, t.head with
     | [], _ -> assert false
     | _, None -> Lwt.return_ok () (* XXX(dinosaure): or [`Not_found]? *)
     | name :: [], Some head ->
-      let open Lwt.Infix in
-      Search.find t.store head (`Commit (`Path [])) >|= Option.get >>= fun tree_root_hash ->
-      Store.read_exn t.store tree_root_hash >>= fun tree_root ->
+      let open Lwt_result.Infix in
+      tree_root_hash_of_store t >>= fun tree_root_hash ->
+      Store.read_exn t.store tree_root_hash >>! fun tree_root ->
       let[@warning "-8"] Git.Value.Tree tree_root = tree_root in
       let tree_root = Git.Tree.remove ~name tree_root in
       let open Lwt_result.Infix in
       Store.write t.store (Git.Value.Tree tree_root) >>= fun (tree_root_hash, _) ->
-      let committer = author ~now in
-      let author = author ~now in
-      let commit = Store.Value.Commit.make ~tree:tree_root_hash ~author ~committer
-        ~parents:[ head ] (Some "Committed by git-kv") in
-      Store.write t.store (Git.Value.Commit commit) >>= fun (hash, _) ->
-      Store.Ref.write t.store t.branch (Git.Reference.uid hash) >>= fun () ->
-      Lwt.Infix.(if and_push then 
-        Sync.push ~capabilities ~ctx:t.ctx t.edn t.store [ `Update (t.branch, t.branch) ]
-        >|= Result.map_error (fun err -> `Msg (Fmt.str "error pushing branch %a: %a"
-          Git.Reference.pp t.branch Sync.pp_error err))
-        >>? fun () -> Store.shallow t.store hash >|= Result.ok
-        else Lwt.return_ok ()) >>= fun () ->
-      t.head <- Some hash ; Lwt.return_ok ()
+      ( match and_commit with
+      | Some (_old_tree_root_hash, th) -> t.committed <- Some (tree_root_hash, th) ; Lwt.return_ok ()
+      | None ->
+        let committer = author ~now in
+        let author    = author ~now in
+        let commit    = Store.Value.Commit.make ~tree:tree_root_hash ~author ~committer
+          ~parents:[ head ] (Some "Committed by git-kv") in
+        Store.write t.store (Git.Value.Commit commit) >>= fun (hash, _) ->
+        Store.Ref.write t.store t.branch (Git.Reference.uid hash) >>= fun () ->
+        Lwt.Infix.(Sync.push ~capabilities ~ctx:t.ctx t.edn t.store [ `Update (t.branch, t.branch) ]
+          >|= Result.map_error (fun err -> `Msg (Fmt.str "error pushing branch %a: %a"
+            Git.Reference.pp t.branch Sync.pp_error err))
+          >>? fun () -> Store.shallow t.store hash >|= Result.ok)
+        >>= fun () -> t.head <- Some hash ; Lwt.return_ok () )
     | name :: pred_name :: rest, Some head ->
-      let open Lwt.Infix in
-      Search.find t.store head (`Commit (`Path (List.rev (pred_name :: rest)))) >>= function
+      let open Lwt_result.Infix in
+      tree_root_hash_of_store t >>= fun tree_root_hash ->
+      Search.find t.store tree_root_hash (`Path (List.rev (pred_name :: rest))) >>! function
       | None -> Lwt.return_ok ()
-      | Some hash -> Store.read_exn t.store hash >>= function
+      | Some hash -> Store.read_exn t.store hash >>! function
         | Git.Value.Tree tree ->
           let tree = Git.Tree.remove ~name tree in
-          let open Lwt_result.Infix in
           Store.write t.store (Git.Value.Tree tree) >>= fun (pred_hash, _) ->
-          unroll_tree t ~head (`Dir, pred_name, pred_hash) rest >>= fun tree_root_hash ->
-          let committer = author ~now in
-          let author = author ~now in
-          let commit = Store.Value.Commit.make ~tree:tree_root_hash ~author ~committer
-            ~parents:[ head ] (Some "Committed by git-kv") in
-          Store.write t.store (Git.Value.Commit commit) >>= fun (hash, _) ->
-          Store.Ref.write t.store t.branch (Git.Reference.uid hash) >>= fun () ->
-          Lwt.Infix.(if and_push then 
-            Sync.push ~capabilities ~ctx:t.ctx t.edn t.store [ `Update (t.branch, t.branch) ]
-            >|= Result.map_error (fun err -> `Msg (Fmt.str "error pushing branch %a: %a"
-              Git.Reference.pp t.branch Sync.pp_error err))
-            >>? fun () -> Store.shallow t.store hash >|= Result.ok
-            else Lwt.return_ok ()) >>= fun () ->
-          t.head <- Some hash ; Lwt.return_ok ()
+          unroll_tree t ~tree_root_hash (`Dir, pred_name, pred_hash) rest >>= fun tree_root_hash ->
+          ( match and_commit with
+          | Some (_old_tree_root_hash, th) -> t.committed <- Some (tree_root_hash, th) ; Lwt.return_ok ()
+          | None ->
+            let committer = author ~now in
+            let author    = author ~now in
+            let commit    = Store.Value.Commit.make ~tree:tree_root_hash ~author ~committer
+              ~parents:[ head ] (Some "Committed by git-kv") in
+            Store.write t.store (Git.Value.Commit commit) >>= fun (hash, _) ->
+            Store.Ref.write t.store t.branch (Git.Reference.uid hash) >>= fun () ->
+            Lwt.Infix.(Sync.push ~capabilities ~ctx:t.ctx t.edn t.store [ `Update (t.branch, t.branch) ]
+              >|= Result.map_error (fun err -> `Msg (Fmt.str "error pushing branch %a: %a"
+                Git.Reference.pp t.branch Sync.pp_error err))
+              >>? fun () -> Store.shallow t.store hash >|= Result.ok)
+            >>= fun () -> t.head <- Some hash ; Lwt.return_ok () )
         | _ -> Lwt.return_ok ()
   
-  let remove ?(and_push= true) t key =
+  let remove t key =
     let open Lwt.Infix in
-    let and_push = no_batch t.batch && and_push in
-    remove ~and_push t key >|= Rresult.R.reword_error to_write_error
+    remove ?and_commit:t.committed t key >|= Rresult.R.reword_error to_write_error
   
-  let rename ?(and_push= true) t ~source ~dest =
+  let rename t ~source ~dest =
     (* TODO(dinosaure): optimize it! It was done on the naive way. *)
     let open Lwt_result.Infix in
     get t source >>= fun contents ->
-    remove ~and_push t source >>= fun () ->
-    set ~and_push t dest contents
+    remove t source >>= fun () ->
+    set t dest contents
 
-  let change_and_push t f =
+  let batch t ?retries:_ f =
     let open Lwt.Infix in
-    ( match t.batch with
+    if t.in_closure then Fmt.invalid_arg "Nested change_and_push" ;
+    (* XXX(dinosaure): serialize [batch]. If we do [Lwt.both (batch ..) (batch ..)], they
+       can not run concurrently! The second will waiting the first to finish. *)
+    ( match t.committed with
     | None -> Lwt.return_unit
-    | Some th -> th ) >>= fun () ->
+    | Some (_tree_root_hash, th) -> th ) >>= fun () ->
     let th, wk = Lwt.wait () in
-    t.batch <- Some th ;
-    f t >>= fun res ->
-    ( Sync.push ~capabilities ~ctx:t.ctx t.edn t.store [ `Update (t.branch, t.branch) ] >>= function
-    | Ok () ->
-      ( match t.head with
-      | None -> Lwt.return_unit
-      | Some hash -> Store.shallow t.store hash )              
-    | Error err ->
-      Fmt.failwith "error pushing branch %a: %a" Git.Reference.pp t.branch Sync.pp_error err ) >>= fun () ->
+    ( let open Lwt_result.Infix in
+      tree_root_hash_of_store t >>= fun tree_root_hash ->
+      t.committed <- Some (tree_root_hash, th) ;
+      let t' = { t with in_closure= true } in
+      f t' >>! fun res ->
+      (* XXX(dinosaure): we assume that only [batch] can reset [t.committed] to [None] and
+         we ensured that [batch] can not be called into [f]. So we are sure that [t'.committed]
+         must be [Some _] in anyway. *)
+      let[@warning "-8"] Some (tree_root_hash, _) = t'.committed in
+      let action    = Option.fold ~none:(`Create t.branch) ~some:(fun _ -> `Update (t.branch, t.branch)) t.head in
+      let parents   = Option.value ~default:[] (Option.map (fun head -> [ head ]) t.head) in
+      let committer = author ~now in
+      let author    = author ~now in
+      let commit    = Store.Value.Commit.make ~tree:tree_root_hash ~author ~committer
+        ~parents (Some "Committed by git-kv") in
+      Store.write t.store (Git.Value.Commit commit) >>= fun (hash, _) ->
+      t.head <- Some hash ;
+      Store.Ref.write t.store t.branch (Git.Reference.uid hash) >>= fun () ->
+      Lwt.Infix.(Sync.push ~capabilities ~ctx:t.ctx t.edn t.store [ action ]
+        >|= Result.map_error (fun err ->
+          `Msg (Fmt.str "error pushing branch %a: %a"
+          Git.Reference.pp t.branch Sync.pp_error err))
+        >>? fun () ->
+        Store.shallow t.store hash >|= Result.ok) >>= fun () ->
+        Lwt.return_ok res )
+    >|= Rresult.R.reword_error (msgf "%a" Store.pp_error)
+    >|= Rresult.R.failwith_error_msg >>= fun res ->
     Lwt.wakeup_later wk () ;
+    t.committed <- None ;
     Lwt.return res
-
-  let batch t ?retries:_ f = f t
-
-  module Local = struct
-    let set_partial t k ~offset v = set_partial ~and_push:false t k ~offset v
-    let set t k v = set ~and_push:false t k v
-    let remove t k = remove ~and_push:false t k
-    let rename t ~source ~dest = rename ~and_push:false t ~source ~dest
-  end
-
-  let set_partial t k ~offset v = set_partial ~and_push:true t k ~offset v
-  let set t k v = set ~and_push:true t k v
-  let remove t k = remove ~and_push:true t k
-  let rename t ~source ~dest = rename ~and_push:true t ~source ~dest
 end
