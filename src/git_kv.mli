@@ -19,7 +19,7 @@
     change produces a commit and after each change we try to transfer them to
     the remote Git repository. If you want to make multiple changes but contain
     them in a single commit and only transfer those changes once, you should
-    use the {!val:Make.batch} function.
+    use the {!val:Make.change_and_push} function.
 
     {2: Serialization of the Git repository.}
     
@@ -66,4 +66,6 @@ module Make (Pclock : Mirage_clock.PCLOCK) : sig
                             | `Hash_not_found of Digestif.SHA1.t
                             | `Reference_not_found of Git.Reference.t
                             | Mirage_kv.write_error ]
+
+  val change_and_push : t -> (t -> 'a Lwt.t) -> 'a Lwt.t
 end

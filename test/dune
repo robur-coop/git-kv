@@ -6,6 +6,6 @@
 
 (cram
  (package git-kv)
- (applies_to batch)
+ (applies_to fold)
  (locks p9418)
  (deps %{bin:mgit}))

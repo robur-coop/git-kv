@@ -5,7 +5,7 @@ Batch operation
   $ cd ..
   $ git daemon --base-path=. --export-all --enable=receive-pack --reuseaddr --pid-file=pid --detach
   $ mgit git://localhost/simple#main <<EOF
-  > batch
+  > fold 
   > set /bar "Git rocks!"
   > set /foo "Hello World!"
   > exists /bar

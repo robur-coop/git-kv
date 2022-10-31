@@ -139,8 +139,8 @@ let repl store fd_in =
       if is_a_tty then Fmt.pr "\n%!" ; pull ~quiet:false store0
       >|= ignore >>= fun () -> go store0
     | [ "quit"; ] -> Lwt.return ()
-    | [ "batch"; ] ->
-      Store.batch store0 (fun store1 -> go store1)
+    | [ "fold"; ] ->
+      Store.change_and_push store0 (fun store1 -> go store1)
       >>= fun () -> go store0
     | [ "save"; filename ] ->
       save store0 filename >|= ignore

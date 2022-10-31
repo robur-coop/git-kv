@@ -613,7 +613,9 @@ module Make (Pclock : Mirage_clock.PCLOCK) = struct
     remove t source >>= fun () ->
     set t dest contents
 
-  let batch t ?retries:_ f =
+  let batch t ?retries:_ f = f t
+
+  let change_and_push t f =
     let open Lwt.Infix in
     if t.in_closure then Fmt.invalid_arg "Nested change_and_push" ;
     (* XXX(dinosaure): serialize [batch]. If we do [Lwt.both (batch ..) (batch ..)], they
