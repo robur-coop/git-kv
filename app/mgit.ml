@@ -35,6 +35,42 @@ let get ~quiet store key =
     if not quiet then Fmt.epr "%a.\n%!" Store.pp_error err ;
     Lwt.return (Ok 1)
 
+let exists ~quiet store key =
+  Store.exists store key >>= function
+  | Ok k when not quiet ->
+    ( match k with
+    | None -> Fmt.pr "%a does not exists\n%!" Mirage_kv.Key.pp key
+    | Some `Dictionary -> Fmt.pr "%a exists as a dictionary\n%!" Mirage_kv.Key.pp key
+    | Some `Value -> Fmt.pr "%a exists as a value\n%!" Mirage_kv.Key.pp key ) ;
+    Lwt.return (Ok 0)
+  | Ok _ -> Lwt.return (Ok 0)
+  | Error err ->
+    if not quiet then Fmt.epr "%a.\n%!" Store.pp_error err ;
+    Lwt.return (Ok 1)
+
+let value_of_string str =
+  let v = ref None in
+  match Scanf.sscanf str "%S" (fun str -> v := Some str) with
+  | () -> Option.get !v
+  | exception _ ->
+    Scanf.sscanf str "%s" (fun str -> v := Some str) ;
+    Option.get !v 
+
+let set ~quiet store key str =
+  let value = value_of_string str in
+  Store.set store key value >>= function
+  | Ok () -> Lwt.return (Ok 0)
+  | Error err ->
+    if not quiet then Fmt.epr "%a.\n%!" Store.pp_write_error err ;
+    Lwt.return (Ok 1)
+
+let remove ~quiet store key =
+  Store.remove store key >>= function
+  | Ok () -> Lwt.return (Ok 0)
+  | Error err ->
+    if not quiet then Fmt.epr "%a.\n%!" Store.pp_write_error err ;
+    Lwt.return (Ok 1)
+
 let list ~quiet store key =
   Store.list store key >>= function
   | Ok lst when not quiet ->
@@ -77,28 +113,48 @@ let with_key ~f key =
     Fmt.epr "Invalid key: %S.\n%!" key ;
     Lwt.return (Ok 1)
 
-let repl store ic =
-  let rec go () = Fmt.pr "# %!" ; match String.split_on_char ' ' (input_line ic) |> trim with
+let repl store fd_in =
+  let is_a_tty = Unix.isatty fd_in in
+  let ic = Unix.in_channel_of_descr fd_in in
+  let rec go store0 =
+    if is_a_tty then Fmt.pr "# %!" ;
+    match String.split_on_char ' ' (input_line ic) |> trim with
     | [ "get"; key; ] ->
-      with_key ~f:(get ~quiet:false store) key >|= ignore >>= go
+      with_key ~f:(get ~quiet:false store0) key
+      >|= ignore >>= fun () -> go store0
+    | [ "exists"; key; ] ->
+      with_key ~f:(exists ~quiet:false store0) key
+      >|= ignore >>= fun () -> go store0
+    | "set" :: key :: data ->
+      let data = String.concat " " data in
+      with_key ~f:(fun key -> set ~quiet:false store0 key data) key
+      >|= ignore >>= fun () -> go store0
+    | [ "remove"; key; ] ->
+      with_key ~f:(remove ~quiet:false store0) key
+      >|= ignore >>= fun () -> go store0
     | [ "list"; key; ] ->
-      with_key ~f:(list ~quiet:false store) key >|= ignore >>= go
+      with_key ~f:(list ~quiet:false store0) key
+      >|= ignore >>= fun () -> go store0
     | [ "pull"; ] ->
-      Fmt.pr "\n%!" ; pull ~quiet:false store >|= ignore >>= go
+      if is_a_tty then Fmt.pr "\n%!" ; pull ~quiet:false store0
+      >|= ignore >>= fun () -> go store0
     | [ "quit"; ] -> Lwt.return ()
+    | [ "batch"; ] ->
+      Store.batch store0 (fun store1 -> go store1)
+      >>= fun () -> go store0
     | [ "save"; filename ] ->
-      save store filename >|= ignore >>= fun _ ->
-      Fmt.pr "\n%!" ; go ()
-    | _ -> Fmt.epr "Invalid command.\n%!" ; go ()
+      save store0 filename >|= ignore
+      >>= fun _ -> if is_a_tty then Fmt.pr "\n%!" ; go store0
+    | _ -> Fmt.epr "Invalid command.\n%!" ; go store0
     | exception End_of_file -> Lwt.return () in
-  go ()
+  go store
 
 let run remote = function
   | None ->
     Lwt_main.run @@
     (Git_unix.ctx (Happy_eyeballs_lwt.create ()) >>= fun ctx ->
      Git_kv.connect ctx remote >>= fun t ->
-     repl t stdin)
+     repl t Unix.stdin)
   | Some filename ->
     let contents =
       let ic = open_in filename in
@@ -109,7 +165,7 @@ let run remote = function
     Lwt_main.run
     ( Git_unix.ctx (Happy_eyeballs_lwt.create ()) >>= fun ctx ->
       Git_kv.of_octets ctx ~remote contents >>= function
-    | Ok t -> repl t stdin
+    | Ok t -> repl t Unix.stdin
     | Error (`Msg err) -> Fmt.failwith "%s." err )
 
 let () = match Sys.argv with

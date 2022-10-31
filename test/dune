@@ -1,3 +1,11 @@
 (cram
  (package git-kv)
+ (applies_to simple)
+ (locks p9418)
+ (deps %{bin:mgit}))
+
+(cram
+ (package git-kv)
+ (applies_to batch)
+ (locks p9418)
  (deps %{bin:mgit}))

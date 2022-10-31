@@ -15,37 +15,20 @@
 
     {2: Pushing and synchronisation.}
 
-    The user can modify the repository (add files, remove files, etc.). They
-    can do this locally (with the {!module:Make.Local} module) and thus assume
-    a possible desynchronisation between the remote repository and what exists
-    locally or they can share these changes with the remote repository (default
-    behavior).
-
-    In the latter case, the notion of {i merge} and conflicts is not handled by
-    our implementation. This means that if the remote repository is manipulated
-    by another instance than yours, it can result in conflicts that will make
-    the above functions fail.
-
-    The only check done by the remote Git repository when you want to submit
-    your change is the ability to find a path between a commit available
-    remotely, the commit-graph given by the transmission, and your last commit.
-    In that way, our [push] is most similar to a [git push --force]!
-    
-    To save I/O, the {!val:Make.batch} operation allows you to do some change
-    into a closure and the implementation will push only at the end of this
-    closure. By this way, you can {!val:Make.set}, {!val:Make.rename} or
-    {!val:Make.remove} without a systematic [push] on these actions. Only one
-    will be done at the end of your closure.
+    The user can modify the repository (add files, remove files, etc.). Each
+    change produces a commit and after each change we try to transfer them to
+    the remote Git repository. If you want to make multiple changes but contain
+    them in a single commit and only transfer those changes once, you should
+    use the {!val:Make.batch} function.
 
     {2: Serialization of the Git repository.}
     
     Finally, the KV-store tries to keep the minimal set of commits required
-    between you and the remote repository. In other words, only {i un}pushed
-    changes are kept by the KV-store. However, if these changes are not pushed,
-    they will be stored into the final state produced by {!val:to_octets}. In
-    other words, the more changes you make out of sync with the remote
-    repository (without pushing them), the bigger the state serialization will
-    be. *)
+    between you and the remote repository. Only {i un}pushed changes are kept
+    by the KV-store. However, if these changes are not pushed, they will be
+    stored into the final state produced by {!val:to_octets}. In other words,
+    the more changes you make out of sync with the remote repository (without
+    pushing them), the bigger the state serialization will be. *)
 
 type t
 (** The type of the Git store. *)
@@ -83,11 +66,4 @@ module Make (Pclock : Mirage_clock.PCLOCK) : sig
                             | `Hash_not_found of Digestif.SHA1.t
                             | `Reference_not_found of Git.Reference.t
                             | Mirage_kv.write_error ]
-
-  module Local : sig
-    val set : t -> key -> string -> (unit, write_error) result Lwt.t
-    val remove : t -> key -> (unit, write_error) result Lwt.t
-    val rename : t -> source:key -> dest:key -> (unit, write_error) result Lwt.t
-    val set_partial : t -> key -> offset:int -> string -> (unit, write_error) result Lwt.t
-  end
 end
