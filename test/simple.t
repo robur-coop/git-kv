@@ -19,8 +19,8 @@ Simple test of our Git Key-Value store
   > quit
   00000000: 4865 6c6c 6f20 576f 726c 6421 0a         Hello World!.
   $ tail -c20 db.pack | hxd.xxd
-  00000000: b2e4 3734 7e2e 7e3d 0885 1239 873d cd11  ..74~.~=...9.=..
-  00000010: 4299 4771                                B.Gq
+  00000000: e4b2 3437 2e7e 3d7e 8508 3912 3d87 11cd  ..47.~=~..9.=...
+  00000010: 9942 7147                                .BqG
   $ mgit git://localhost/simple db.pack <<EOF
   > get /foo
   > quit
