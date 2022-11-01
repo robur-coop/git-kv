@@ -18,10 +18,9 @@ Simple test of our Git Key-Value store
   > save db.pack
   > quit
   00000000: 4865 6c6c 6f20 576f 726c 6421 0a         Hello World!.
-  $ tail -c20 db.pack | hexdump
-  0000000 b2e4 3734 7e2e 7e3d 0885 1239 873d cd11
-  0000010 4299 4771                              
-  0000014
+  $ tail -c20 db.pack | hxd.xxd
+  00000000: b2e4 3734 7e2e 7e3d 0885 1239 873d cd11  ..74~.~=...9.=..
+  00000010: 4299 4771                                B.Gq
   $ mgit git://localhost/simple db.pack <<EOF
   > get /foo
   > quit

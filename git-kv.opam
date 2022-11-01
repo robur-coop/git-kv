@@ -16,6 +16,7 @@ depends: [
   "mirage-clock-unix"
   "mirage-clock"
   "ptime"
+  "hxd"               {with-test}
   "conf-git"          {with-test}
 ]
 
