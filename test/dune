@@ -2,10 +2,21 @@
  (package git-kv)
  (applies_to simple)
  (locks p9418)
+ (enabled_if (= "true" {%read:git-daemon}))
  (deps %{bin:mgit}))
 
 (cram
  (package git-kv)
  (applies_to fold)
  (locks p9418)
+ (enabled_if (= "true" {%read:git-daemon}))
  (deps %{bin:mgit}))
+
+(executable
+ (name git_daemon_exists)
+ (libraries unix))
+
+(rule
+ (with-stdout-to
+  git-daemon
+  (run ./git_daemon_exists.exe)))
