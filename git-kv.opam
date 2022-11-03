@@ -1,6 +1,7 @@
 opam-version: "2.0"
 maintainer: "Robur Team <team@robur.coop>"
 authors: [ "Robur Team <team@robur.coop>" ]
+license: "MIT"
 homepage: "https://github.com/roburio/git-kv"
 dev-repo: "git+https://github.com/roburio/git-kv.git"
 bug-reports: "https://github.com/roburio/git-kv/issues"
