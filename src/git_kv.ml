@@ -19,9 +19,6 @@ let init_store () =
     (fun e -> `Msg (Fmt.str "error setting up store %a" Store.pp_error e))
     r
 
-let main = Git.Reference.v "refs/heads/main"
-let msgf fmt = Fmt.kstr (fun msg -> `Msg msg) fmt
-
 let capabilities =
   [ `Side_band_64k; `Multi_ack_detailed; `Ofs_delta; `Thin_pack; `Report_status ]
 
@@ -35,7 +32,7 @@ let split_url s =
     Smart_git.Endpoint.of_string edn |> to_invalid,
     Git.Reference.of_string ("refs/heads/" ^ branch) |> to_invalid
   | _ ->
-    Smart_git.Endpoint.of_string s |> to_invalid, main
+    Smart_git.Endpoint.of_string s |> to_invalid, Git.Reference.main
 
 let fpath_to_key ~root v =
   if Fpath.equal root v
@@ -492,7 +489,7 @@ module Make (Pclock : Mirage_clock.PCLOCK) = struct
       let open Lwt.Infix in
       Store.read_exn t.store commit >>= function
       | Git.Value.Commit commit -> Lwt.return_ok (Store.Value.Commit.tree commit)
-      | _ -> Lwt.return_error (msgf "The current HEAD value (%a) is not a commit" Digestif.SHA1.pp commit)
+      | _ -> Lwt.return_error (`Msg (Fmt.str "The current HEAD value (%a) is not a commit" Digestif.SHA1.pp commit))
 
   let ( >>? ) = Lwt_result.bind
   let now () = Int64.of_float (Ptime.to_float_s (Ptime.v (Pclock.now_d_ps ())))
