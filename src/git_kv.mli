@@ -22,7 +22,7 @@
     use the {!val:Make.change_and_push} function.
 
     {2: Serialization of the Git repository.}
-    
+
     Finally, the KV-store tries to keep the minimal set of commits required
     between you and the remote repository. Only {i un}pushed changes are kept
     by the KV-store. However, if these changes are not pushed, they will be

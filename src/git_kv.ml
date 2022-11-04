@@ -355,10 +355,10 @@ module Make (Pclock : Mirage_clock.PCLOCK) = struct
                      | `Hash_not_found of Digestif.SHA1.t
                      | `Reference_not_found of Git.Reference.t
                      | Mirage_kv.write_error ]
-  
+
   let pp_error ppf = Mirage_kv.pp_error ppf
   let disconnect _t = Lwt.return_unit
-  
+
   let pp_write_error ppf = function
     | #Mirage_kv.write_error as err -> Mirage_kv.pp_write_error ppf err
     | `Reference_not_found _ | `Msg _ as err -> Store.pp_error ppf err
@@ -376,7 +376,7 @@ module Make (Pclock : Mirage_clock.PCLOCK) = struct
         >|= Option.get >>= Store.read_exn t.store >>= function
         | Blob _ -> Lwt.return (Ok (Some `Value))
         | Tree _ | Commit _ | Tag _ -> Lwt.return (Ok (Some `Dictionary))
-  
+
   let get t key =
     let open Lwt.Infix in
     match t.head with
@@ -388,7 +388,7 @@ module Make (Pclock : Mirage_clock.PCLOCK) = struct
         Store.read_exn t.store blob >|= function
         | Blob b -> Ok (Git.Blob.to_string b)
         | _ -> Error (`Value_expected key)
-  
+
   let get_partial t key ~offset ~length =
     let open Lwt_result.Infix in
     get t key >|= fun data ->
@@ -397,7 +397,7 @@ module Make (Pclock : Mirage_clock.PCLOCK) = struct
     else
       let l = min length (String.length data - offset) in
       String.sub data offset l
-  
+
   let list t key =
     let open Lwt.Infix in
     match t.head with
@@ -414,7 +414,7 @@ module Make (Pclock : Mirage_clock.PCLOCK) = struct
             | `Link -> failwith "Unimplemented link follow")
           (Store.Value.Tree.to_list t) >|= Result.ok
         | _ -> Lwt.return (Error (`Dictionary_expected key))
-  
+
   let last_modified t key =
     let open Lwt.Infix in
     Option.fold
@@ -439,23 +439,23 @@ module Make (Pclock : Mirage_clock.PCLOCK) = struct
             Ok (Ptime.(Span.to_d_ps (to_span ts)))
           | _ -> assert false)
       t.head
-  
+
   let digest t key =
     Option.fold
       ~none:(Error (`Not_found key))
       ~some:(fun x -> Ok (Store.Hash.to_hex x))
       t.head |> Lwt.return
-  
+
   let size t key =
     let open Lwt_result.Infix in
     get t key >|= fun data ->
     String.length data
-  
+
   let author ~now =
     { Git.User.name= "Git KV"
     ; email= "git@mirage.io"
     ; date= now (), None }
-  
+
   let rec unroll_tree t ~tree_root_hash (pred_perm, pred_name, pred_hash) rpath =
     let open Lwt.Infix in
     let ( >>? ) = Lwt_result.bind in
@@ -496,7 +496,7 @@ module Make (Pclock : Mirage_clock.PCLOCK) = struct
 
   let ( >>? ) = Lwt_result.bind
   let now () = Int64.of_float (Ptime.to_float_s (Ptime.v (Pclock.now_d_ps ())))
-  
+
   let set ?and_commit t key contents =
     let segs = Mirage_kv.Key.segments key in
     match segs with
@@ -527,18 +527,18 @@ module Make (Pclock : Mirage_clock.PCLOCK) = struct
             Git.Reference.pp t.branch Sync.pp_error err))
           >>? fun () -> Store.shallow t.store hash >|= Result.ok) >>= fun () ->
         t.head <- Some hash ; Lwt.return_ok ()
-  
+
   let to_write_error (error : Store.error) = match error with
     | `Not_found hash -> `Hash_not_found hash
     | `Reference_not_found ref -> `Reference_not_found ref
     | `Msg err -> `Msg err
     | err -> Rresult.R.msgf "%a" Store.pp_error err
-  
+
   let set t key contents =
     let open Lwt.Infix in
     set ?and_commit:t.committed t key contents
     >|= Rresult.R.reword_error to_write_error
-  
+
   let set_partial t key ~offset chunk =
     let open Lwt_result.Infix in
     get t key >>= fun contents ->
@@ -548,7 +548,7 @@ module Make (Pclock : Mirage_clock.PCLOCK) = struct
     Bytes.blit_string contents 0 res 0 len ;
     Bytes.blit_string chunk 0 res offset add ;
     set t key (Bytes.unsafe_to_string res)
-  
+
   let remove ?and_commit t key =
     let segs = Mirage_kv.Key.segments key in
     match List.rev segs, t.head with
@@ -601,11 +601,11 @@ module Make (Pclock : Mirage_clock.PCLOCK) = struct
               >>? fun () -> Store.shallow t.store hash >|= Result.ok)
             >>= fun () -> t.head <- Some hash ; Lwt.return_ok () )
         | _ -> Lwt.return_ok ()
-  
+
   let remove t key =
     let open Lwt.Infix in
     remove ?and_commit:t.committed t key >|= Rresult.R.reword_error to_write_error
-  
+
   let rename t ~source ~dest =
     (* TODO(dinosaure): optimize it! It was done on the naive way. *)
     let open Lwt_result.Infix in

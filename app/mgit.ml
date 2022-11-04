@@ -54,7 +54,7 @@ let value_of_string str =
   | () -> Option.get !v
   | exception _ ->
     Scanf.sscanf str "%s" (fun str -> v := Some str) ;
-    Option.get !v 
+    Option.get !v
 
 let set ~quiet store key str =
   let value = value_of_string str in
