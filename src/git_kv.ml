@@ -334,9 +334,9 @@ let of_octets ctx ~remote data =
   (* TODO maybe recover edn and branch from data as well? *)
   Lwt.catch
     (fun () ->
-       init_store ()
-       >|= Rresult.R.reword_error (Rresult.R.msgf "%a" Store.pp_error)
-       >|= Rresult.R.failwith_error_msg >>= fun store ->
+       init_store () >|=
+       Result.map_error (Fmt.to_to_string Store.pp_error) >|=
+       Result.get_ok >>= fun store ->
        analyze store data >>= fun head ->
        let edn, branch = split_url remote in
        Lwt.return_ok { ctx ; edn ; branch ; store ; committed= None; in_closure= false; head; })
@@ -532,12 +532,12 @@ module Make (Pclock : Mirage_clock.PCLOCK) = struct
     | `Not_found hash -> `Hash_not_found hash
     | `Reference_not_found ref -> `Reference_not_found ref
     | `Msg err -> `Msg err
-    | err -> Rresult.R.msgf "%a" Store.pp_error err
+    | err -> `Msg (Fmt.to_to_string Store.pp_error err)
 
   let set t key contents =
     let open Lwt.Infix in
     set ?and_commit:t.committed t key contents
-    >|= Rresult.R.reword_error to_write_error
+    >|= Result.map_error to_write_error
 
   let set_partial t key ~offset chunk =
     let open Lwt_result.Infix in
@@ -604,7 +604,7 @@ module Make (Pclock : Mirage_clock.PCLOCK) = struct
 
   let remove t key =
     let open Lwt.Infix in
-    remove ?and_commit:t.committed t key >|= Rresult.R.reword_error to_write_error
+    remove ?and_commit:t.committed t key >|= Result.map_error to_write_error
 
   let rename t ~source ~dest =
     (* TODO(dinosaure): optimize it! It was done on the naive way. *)
@@ -652,8 +652,8 @@ module Make (Pclock : Mirage_clock.PCLOCK) = struct
           >>? fun () ->
           Store.shallow t.store hash >|= Result.ok) >>= fun () ->
           Lwt.return_ok res )
-    >|= Rresult.R.reword_error (msgf "%a" Store.pp_error)
-    >|= Rresult.R.failwith_error_msg >>= fun res ->
+    >|= Result.map_error (Fmt.to_to_string Store.pp_error)
+    >|= Result.get_ok >>= fun res ->
     Lwt.wakeup_later wk () ;
     t.committed <- None ;
     Lwt.return res

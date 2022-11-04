@@ -22,7 +22,6 @@ let () = Logs.set_reporter (reporter Fmt.stderr)
 let () = Logs.set_level ~all:true (Some Logs.Debug)
 *)
 
-open Rresult
 open Lwt.Infix
 
 let get ~quiet store key =
