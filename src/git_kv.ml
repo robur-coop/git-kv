@@ -614,44 +614,47 @@ module Make (Pclock : Mirage_clock.PCLOCK) = struct
 
   let change_and_push t f =
     let open Lwt.Infix in
-    if t.in_closure then Fmt.invalid_arg "Nested change_and_push" ;
-    (* XXX(dinosaure): serialize [batch]. If we do [Lwt.both (batch ..) (batch ..)], they
-       can not run concurrently! The second will waiting the first to finish. *)
-    ( match t.committed with
-    | None -> Lwt.return_unit
-    | Some (_tree_root_hash, th) -> th ) >>= fun () ->
-    let th, wk = Lwt.wait () in
-    ( let open Lwt_result.Infix in
-      tree_root_hash_of_store t >>= fun tree_root_hash ->
-      t.committed <- Some (tree_root_hash, th) ;
-      let t' = { t with in_closure= true } in
-      f t' >>! fun res ->
-      (* XXX(dinosaure): we assume that only [batch] can reset [t.committed] to [None] and
-         we ensured that [batch] can not be called into [f]. So we are sure that [t'.committed]
-         must be [Some _] in anyway. *)
-      let[@warning "-8"] Some (new_tree_root_hash, _) = t'.committed in
-      if Digestif.SHA1.equal new_tree_root_hash tree_root_hash
-      then Lwt.return_ok res (* XXX(dinosaure): nothing to send! *)
-      else
-        let action    = Option.fold ~none:(`Create t.branch) ~some:(fun _ -> `Update (t.branch, t.branch)) t.head in
-        let parents   = Option.value ~default:[] (Option.map (fun head -> [ head ]) t.head) in
-        let committer = author ~now in
-        let author    = author ~now in
-        let commit    = Store.Value.Commit.make ~tree:new_tree_root_hash ~author ~committer
-          ~parents (Some "Committed by git-kv") in
-        Store.write t.store (Git.Value.Commit commit) >>= fun (hash, _) ->
-        t.head <- Some hash ;
-        Store.Ref.write t.store t.branch (Git.Reference.uid hash) >>= fun () ->
-        Lwt.Infix.(Sync.push ~capabilities ~ctx:t.ctx t.edn t.store [ action ]
-          >|= Result.map_error (fun err ->
-            `Msg (Fmt.str "error pushing branch %a: %a"
-            Git.Reference.pp t.branch Sync.pp_error err))
-          >>? fun () ->
-          Store.shallow t.store hash >|= Result.ok) >>= fun () ->
+    if t.in_closure then
+      Lwt.return_error (`Msg "Nested change_and_push")
+    else
+      (* XXX(dinosaure): serialize [batch]. If we do [Lwt.both (batch ..) (batch ..)], they
+         can not run concurrently! The second will waiting the first to finish. *)
+      ( match t.committed with
+        | None -> Lwt.return_unit
+        | Some (_tree_root_hash, th) -> th ) >>= fun () ->
+      let th, wk = Lwt.wait () in
+      ( let open Lwt_result.Infix in
+        tree_root_hash_of_store t >>= fun tree_root_hash ->
+        t.committed <- Some (tree_root_hash, th) ;
+        let t' = { t with in_closure= true } in
+        f t' >>! fun res ->
+        (* XXX(dinosaure): we assume that only [batch] can reset [t.committed] to [None] and
+           we ensured that [batch] can not be called into [f]. So we are sure that [t'.committed]
+           must be [Some _] in anyway. *)
+        let[@warning "-8"] Some (new_tree_root_hash, _) = t'.committed in
+        if Digestif.SHA1.equal new_tree_root_hash tree_root_hash
+        then Lwt.return_ok res (* XXX(dinosaure): nothing to send! *)
+        else
+          let action    = Option.fold ~none:(`Create t.branch) ~some:(fun _ -> `Update (t.branch, t.branch)) t.head in
+          let parents   = Option.value ~default:[] (Option.map (fun head -> [ head ]) t.head) in
+          let committer = author ~now in
+          let author    = author ~now in
+          let commit    = Store.Value.Commit.make ~tree:new_tree_root_hash ~author ~committer
+              ~parents (Some "Committed by git-kv") in
+          Store.write t.store (Git.Value.Commit commit) >>= fun (hash, _) ->
+          t.head <- Some hash ;
+          Store.Ref.write t.store t.branch (Git.Reference.uid hash) >>= fun () ->
+          Lwt.Infix.(Sync.push ~capabilities ~ctx:t.ctx t.edn t.store [ action ]
+                     >|= Result.map_error (fun err ->
+                         `Msg (Fmt.str "error pushing branch %a: %a"
+                                 Git.Reference.pp t.branch Sync.pp_error err))
+                     >>? fun () ->
+                     Store.shallow t.store hash >|= Result.ok) >>= fun () ->
           Lwt.return_ok res )
-    >|= Result.map_error (Fmt.to_to_string Store.pp_error)
-    >|= Result.get_ok >>= fun res ->
-    Lwt.wakeup_later wk () ;
-    t.committed <- None ;
-    Lwt.return res
+      >|= Result.map_error
+        (fun err -> `Msg (Fmt.str "error pushing %a" Store.pp_error err))
+      >>= fun res ->
+      Lwt.wakeup_later wk () ;
+      t.committed <- None ;
+      Lwt.return res
 end

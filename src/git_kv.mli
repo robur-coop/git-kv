@@ -67,5 +67,5 @@ module Make (Pclock : Mirage_clock.PCLOCK) : sig
                             | `Reference_not_found of Git.Reference.t
                             | Mirage_kv.write_error ]
 
-  val change_and_push : t -> (t -> 'a Lwt.t) -> 'a Lwt.t
+  val change_and_push : t -> (t -> 'a Lwt.t) -> ('a, [> `Msg of string ]) result Lwt.t
 end
