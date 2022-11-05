@@ -140,7 +140,8 @@ let repl store fd_in =
     | [ "quit"; ] -> Lwt.return ()
     | [ "fold"; ] ->
       Store.change_and_push store0 (fun store1 -> go store1)
-      >>= fun _ -> go store0
+      >|= Result.fold ~ok:Fun.id ~error:(function `Msg msg -> Fmt.epr "%s.\n%!" msg)
+      >>= fun () -> go store0
     | [ "save"; filename ] ->
       save store0 filename >|= ignore
       >>= fun _ -> if is_a_tty then Fmt.pr "\n%!" ; go store0
