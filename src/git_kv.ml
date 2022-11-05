@@ -332,8 +332,7 @@ let of_octets ctx ~remote data =
   Lwt.catch
     (fun () ->
        init_store () >|=
-       Result.map_error (Fmt.to_to_string Store.pp_error) >|=
-       Result.get_ok >>= fun store ->
+       Result.fold ~ok:Fun.id ~error:(function `Msg msg -> failwith msg) >>= fun store ->
        analyze store data >>= fun head ->
        let edn, branch = split_url remote in
        Lwt.return_ok { ctx ; edn ; branch ; store ; committed= None; in_closure= false; head; })
