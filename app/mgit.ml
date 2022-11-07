@@ -22,7 +22,6 @@ let () = Logs.set_reporter (reporter Fmt.stderr)
 let () = Logs.set_level ~all:true (Some Logs.Debug)
 *)
 
-open Rresult
 open Lwt.Infix
 
 let get ~quiet store key =
@@ -54,7 +53,7 @@ let value_of_string str =
   | () -> Option.get !v
   | exception _ ->
     Scanf.sscanf str "%s" (fun str -> v := Some str) ;
-    Option.get !v 
+    Option.get !v
 
 let set ~quiet store key str =
   let value = value_of_string str in
@@ -141,6 +140,7 @@ let repl store fd_in =
     | [ "quit"; ] -> Lwt.return ()
     | [ "fold"; ] ->
       Store.change_and_push store0 (fun store1 -> go store1)
+      >|= Result.fold ~ok:Fun.id ~error:(function `Msg msg -> Fmt.epr "%s.\n%!" msg)
       >>= fun () -> go store0
     | [ "save"; filename ] ->
       save store0 filename >|= ignore
