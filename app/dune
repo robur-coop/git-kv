@@ -1,4 +1,3 @@
 (executable
  (name mgit)
- (public_name mgit)
  (libraries mirage-clock-unix logs.fmt fmt.tty git-unix git-kv))
