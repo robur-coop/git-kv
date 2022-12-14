@@ -346,13 +346,16 @@ module Make (Pclock : Mirage_clock.PCLOCK) = struct
   type nonrec t = t
   type key = Mirage_kv.Key.t
 
-  type error = Mirage_kv.error
+  type error = [ `Msg of string | Mirage_kv.error ]
   type write_error = [ `Msg of string
                      | `Hash_not_found of Digestif.SHA1.t
                      | `Reference_not_found of Git.Reference.t
                      | Mirage_kv.write_error ]
 
-  let pp_error ppf = Mirage_kv.pp_error ppf
+  let pp_error ppf = function
+    | #Mirage_kv.error as err -> Mirage_kv.pp_error ppf err
+    | `Msg msg -> Fmt.string ppf msg
+
   let disconnect _t = Lwt.return_unit
 
   let pp_write_error ppf = function
@@ -387,12 +390,15 @@ module Make (Pclock : Mirage_clock.PCLOCK) = struct
 
   let get_partial t key ~offset ~length =
     let open Lwt_result.Infix in
-    get t key >|= fun data ->
-    if String.length data < offset then
-      ""
+    get t key >>= fun data ->
+    let off = Optint.Int63.to_int offset in
+    if off < 0 then
+      Lwt_result.fail (`Msg "offset does not fit into integer")
+    else if String.length data < off then
+      Lwt_result.return ""
     else
-      let l = min length (String.length data - offset) in
-      String.sub data offset l
+      let l = min length (String.length data - off) in
+      Lwt_result.return (String.sub data off l)
 
   let list t key =
     let open Lwt.Infix in
@@ -404,11 +410,15 @@ module Make (Pclock : Mirage_clock.PCLOCK) = struct
       | Some tree ->
         Store.read_exn t.store tree >>= function
         | Tree t ->
-          Lwt_list.map_p (fun { Git.Tree.perm; name; _ } -> match perm with
-            | `Commit | `Dir -> Lwt.return (name, `Dictionary)
-            | `Everybody | `Exec | `Normal -> Lwt.return (name, `Value)
-            | `Link -> failwith "Unimplemented link follow")
-          (Store.Value.Tree.to_list t) >|= Result.ok
+          let r =
+            List.map (fun { Git.Tree.perm; name; _ } ->
+                Mirage_kv.Key.add key name,
+                match perm with
+                | `Commit | `Dir -> `Dictionary
+                | `Everybody | `Exec | `Normal | `Link -> `Value)
+              (Store.Value.Tree.to_list t)
+          in
+          Lwt.return (Ok r)
         | _ -> Lwt.return (Error (`Dictionary_expected key))
 
   let last_modified t key =
@@ -430,9 +440,11 @@ module Make (Pclock : Mirage_clock.PCLOCK) = struct
                 tz_offset
             in
             let ts =
-              Option.fold ~none:Ptime.epoch ~some:Fun.id (Ptime.of_float_s (Int64.to_float secs))
+              Option.fold
+                ~none:Ptime.epoch
+                ~some:Fun.id (Ptime.of_float_s (Int64.to_float secs))
             in
-            Ok (Ptime.(Span.to_d_ps (to_span ts)))
+            Ok ts
           | _ -> assert false)
       t.head
 
@@ -445,7 +457,7 @@ module Make (Pclock : Mirage_clock.PCLOCK) = struct
   let size t key =
     let open Lwt_result.Infix in
     get t key >|= fun data ->
-    String.length data
+    Optint.Int63.of_int (String.length data)
 
   let author ~now =
     { Git.User.name= "Git KV"
@@ -540,10 +552,14 @@ module Make (Pclock : Mirage_clock.PCLOCK) = struct
     get t key >>= fun contents ->
     let len = String.length contents in
     let add = String.length chunk in
-    let res = Bytes.make (max len (offset + add)) '\000' in
-    Bytes.blit_string contents 0 res 0 len ;
-    Bytes.blit_string chunk 0 res offset add ;
-    set t key (Bytes.unsafe_to_string res)
+    let off = Optint.Int63.to_int offset in
+    if off < 0 then
+      Lwt_result.fail (`Msg "offset does not fit into integer")
+    else
+      let res = Bytes.make (max len (off + add)) '\000' in
+      Bytes.blit_string contents 0 res 0 len ;
+      Bytes.blit_string chunk 0 res off add ;
+      set t key (Bytes.unsafe_to_string res)
 
   let remove ?and_commit t key =
     let segs = Mirage_kv.Key.segments key in
@@ -609,15 +625,27 @@ module Make (Pclock : Mirage_clock.PCLOCK) = struct
     remove t source >>= fun () ->
     set t dest contents
 
-  let batch t ?retries:_ f = f t
+  let allocate t key ?last_modified:_ size =
+    let open Lwt.Infix in
+    exists t key >>= function
+    | Error _ as e -> Lwt.return e
+    | Ok Some _ -> Lwt_result.fail (`Already_present key)
+    | Ok None ->
+      let size = Optint.Int63.to_int size in
+      if size < 0 then
+        Lwt_result.fail (`Msg "size does not fit into integer")
+      else
+        let data = String.make size '\000' in
+        set t key data
 
   let change_and_push t f =
     let open Lwt.Infix in
     if t.in_closure then
       Lwt.return_error (`Msg "Nested change_and_push")
     else
-      (* XXX(dinosaure): serialize [batch]. If we do [Lwt.both (batch ..) (batch ..)], they
-         can not run concurrently! The second will waiting the first to finish. *)
+      (* XXX(dinosaure): serialize [change_and_push]. If we do
+         [Lwt.both (change_and_push ..) (change_and_push ..)], they can not run
+         concurrently! The second will waiting the first to finish. *)
       ( match t.committed with
         | None -> Lwt.return_unit
         | Some (_tree_root_hash, th) -> th ) >>= fun () ->
@@ -627,8 +655,8 @@ module Make (Pclock : Mirage_clock.PCLOCK) = struct
         t.committed <- Some (tree_root_hash, th) ;
         let t' = { t with in_closure= true } in
         f t' >>! fun res ->
-        (* XXX(dinosaure): we assume that only [batch] can reset [t.committed] to [None] and
-           we ensured that [batch] can not be called into [f]. So we are sure that [t'.committed]
+        (* XXX(dinosaure): we assume that only [change_and_push] can reset [t.committed] to [None] and
+           we ensured that [change_and_push] can not be called into [f]. So we are sure that [t'.committed]
            must be [Some _] in anyway. *)
         let[@warning "-8"] Some (new_tree_root_hash, _) = t'.committed in
         if Digestif.SHA1.equal new_tree_root_hash tree_root_hash

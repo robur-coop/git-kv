@@ -74,8 +74,8 @@ let list ~quiet store key =
   Store.list store key >>= function
   | Ok lst when not quiet ->
     List.iter (fun (name, k) -> match k with
-    | `Dictionary -> Fmt.pr "d %s\n%!" name
-    | `Value -> Fmt.pr "- %s\n%!" name) lst ;
+    | `Dictionary -> Fmt.pr "d %a\n%!" Mirage_kv.Key.pp name
+    | `Value -> Fmt.pr "- %a\n%!" Mirage_kv.Key.pp name) lst ;
     Lwt.return (Ok 0)
   | Ok _ -> Lwt.return (Ok 0)
   | Error err ->
