@@ -68,5 +68,10 @@ module Make (Pclock : Mirage_clock.PCLOCK) : sig
                             | Mirage_kv.write_error ]
      and type error = [ `Msg of string | Mirage_kv.error ]
 
-  val change_and_push : t -> (t -> 'a Lwt.t) -> ('a, [> `Msg of string ]) result Lwt.t
+  val change_and_push : t -> ?author:string -> ?author_email:string ->
+    ?message:string -> (t -> 'a Lwt.t) -> ('a, [> `Msg of string ]) result Lwt.t
+  (** [change_and_push store ~author ~author_email ~message f] applies the
+      changes of [f] to [store], and creates a commit using [author],
+      [author_email], and [message] (committer will be the same as author), and
+      pushes that commit to the remote. *)
 end
