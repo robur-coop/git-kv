@@ -459,10 +459,8 @@ module Make (Pclock : Mirage_clock.PCLOCK) = struct
     get t key >|= fun data ->
     Optint.Int63.of_int (String.length data)
 
-  let author ~now =
-    { Git.User.name= "Git KV"
-    ; email= "git@mirage.io"
-    ; date= now (), None }
+  let author ?(name = "Git KV") ?(email = "git@mirage.io") now =
+    { Git.User.name ; email ; date = now (), None }
 
   let rec unroll_tree t ~tree_root_hash (pred_perm, pred_name, pred_hash) rpath =
     let open Lwt.Infix in
@@ -522,8 +520,8 @@ module Make (Pclock : Mirage_clock.PCLOCK) = struct
         t.committed <- Some (tree_root_hash, th) ;
         Lwt.return_ok ()
       | None ->
-        let committer = author ~now in
-        let author    = author ~now in
+        let committer = author now in
+        let author    = author now in
         let action    = Option.fold ~none:(`Create t.branch) ~some:(fun _ -> `Update (t.branch, t.branch)) t.head in
         let parents   = Option.value ~default:[] (Option.map (fun head -> [ head ]) t.head) in
         let commit    = Store.Value.Commit.make ~tree:tree_root_hash ~author ~committer
@@ -577,8 +575,8 @@ module Make (Pclock : Mirage_clock.PCLOCK) = struct
       ( match and_commit with
       | Some (_old_tree_root_hash, th) -> t.committed <- Some (tree_root_hash, th) ; Lwt.return_ok ()
       | None ->
-        let committer = author ~now in
-        let author    = author ~now in
+        let committer = author now in
+        let author    = author now in
         let commit    = Store.Value.Commit.make ~tree:tree_root_hash ~author ~committer
           ~parents:[ head ] (Some "Committed by git-kv") in
         Store.write t.store (Git.Value.Commit commit) >>= fun (hash, _) ->
@@ -601,8 +599,8 @@ module Make (Pclock : Mirage_clock.PCLOCK) = struct
           ( match and_commit with
           | Some (_old_tree_root_hash, th) -> t.committed <- Some (tree_root_hash, th) ; Lwt.return_ok ()
           | None ->
-            let committer = author ~now in
-            let author    = author ~now in
+            let committer = author now in
+            let author    = author now in
             let commit    = Store.Value.Commit.make ~tree:tree_root_hash ~author ~committer
               ~parents:[ head ] (Some "Committed by git-kv") in
             Store.write t.store (Git.Value.Commit commit) >>= fun (hash, _) ->
@@ -638,7 +636,7 @@ module Make (Pclock : Mirage_clock.PCLOCK) = struct
         let data = String.make size '\000' in
         set t key data
 
-  let change_and_push t f =
+  let change_and_push t ?author:name ?author_email:email ?(message = "Committed by git-kv") f =
     let open Lwt.Infix in
     if t.in_closure then
       Lwt.return_error (`Msg "Nested change_and_push")
@@ -664,10 +662,10 @@ module Make (Pclock : Mirage_clock.PCLOCK) = struct
         else
           let action    = Option.fold ~none:(`Create t.branch) ~some:(fun _ -> `Update (t.branch, t.branch)) t.head in
           let parents   = Option.value ~default:[] (Option.map (fun head -> [ head ]) t.head) in
-          let committer = author ~now in
-          let author    = author ~now in
+          let author    = author ?name ?email now in
+          let committer = author in
           let commit    = Store.Value.Commit.make ~tree:new_tree_root_hash ~author ~committer
-              ~parents (Some "Committed by git-kv") in
+              ~parents (Some message) in
           Store.write t.store (Git.Value.Commit commit) >>= fun (hash, _) ->
           t.head <- Some hash ;
           Store.Ref.write t.store t.branch (Git.Reference.uid hash) >>= fun () ->
