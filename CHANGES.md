@@ -1,3 +1,8 @@
+# v0.0.3 2022-12-16 - Berlin (Germany)
+
+- Allow author, author_email, and message being specified in `change_and_push`
+  (#28 @hannes)
+
 # v0.0.2 2022-12-14 - Berlin (Germany)
 
 - Use Stdlib.Result and Fmt instead of Rresult (#24 @hannes)
