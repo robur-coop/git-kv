@@ -40,6 +40,8 @@ val connect : Mimic.ctx -> string -> t Lwt.t
     @raise [Invalid_argument _] if we can not initialize the store, or if
     we can not fetch the given [remote]. *)
 
+val branch : t -> Git.Reference.t
+
 val to_octets : t -> string Lwt.t
 (** [to_octets store] returns a serialized version of the given [store]. *)
 

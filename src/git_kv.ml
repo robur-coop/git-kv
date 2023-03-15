@@ -107,6 +107,8 @@ let connect ctx endpoint =
   let _r = to_invalid r in
   Lwt.return t
 
+let branch t = t.branch
+
 type key = Mirage_kv.Key.t
 
 type change = [
