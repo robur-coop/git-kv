@@ -43,26 +43,33 @@ let diff store commit0 commit1 =
   let open Lwt.Infix in
   let root = Fpath.v "./" in
   let tbl0 = Hashtbl.create 0x10 in
+  Logs.info (fun m -> m "calling diff2, Store.fold 1");
   Store.fold store (fun () ?name ~length:_ hash _value ->
     Option.iter (fun name -> Hashtbl.add tbl0 (fpath_to_key ~root name) hash) name ;
     Lwt.return ()) () ~path:root commit0 >>= fun () ->
   let tbl1 = Hashtbl.create 0x10 in
+  Logs.info (fun m -> m "calling diff2, Store.fold 2");
   Store.fold store (fun () ?name ~length:_ hash _value ->
     Option.iter (fun name -> Hashtbl.add tbl1 (fpath_to_key ~root name) hash) name ;
     Lwt.return ()) () ~path:root commit1 >>= fun () ->
+  Logs.info (fun m -> m "calling diff2, Hashtbl.fold 1");
   let diff = Hashtbl.fold (fun name hash diff ->
     match Hashtbl.find_opt tbl1 name with
     | Some hash' when not (Digestif.SHA1.equal hash hash') -> `Change name :: diff
     | Some _ -> diff
     | None -> `Remove name :: diff) tbl0 [] in
+  Logs.info (fun m -> m "calling diff2, Hashtbl.fold 2");
   let diff = Hashtbl.fold (fun name _hash diff ->
     if not (Hashtbl.mem tbl0 name)
     then `Add name :: diff else diff) tbl1 diff in
   Lwt.return diff
 
 let diff store commit0 commit1 = match commit0 with
-  | Some commit0 -> diff store commit0 commit1
+  | Some commit0 ->
+    Logs.info (fun m -> m "calling diff with two commits");
+    diff store commit0 commit1
   | None ->
+    Logs.info (fun m -> m "calling diff, Store.fold");
     let root = Fpath.v "." in
     Store.fold store (fun diff ?name ~length:_ _hash _value -> match name with
       | None -> Lwt.return diff
@@ -78,32 +85,46 @@ let pull t =
     (* TODO(dinosaure): we should handle correctly [tz] and re-calculate the timestamp. *)
     let { Git.User.date= (timestamp, _tz); _ } = Store.Value.Commit.author commit in
     Lwt.return (`Timestamp timestamp) ) >>= fun deepen ->
+  Logs.info (fun m -> m "git kv: sync.fetch");
   Sync.fetch ~capabilities ~ctx:t.ctx t.edn t.store ~deepen (`Some [ t.branch, t.branch ]) >>= fun r ->
+  Logs.info (fun m -> m "git kv: sync.fetch done");
   let data =
     Result.map_error
       (fun e -> `Msg (Fmt.str "error fetching: %a" Sync.pp_error e))
       r
   in
   match data with
-  | Error _ as e -> Lwt.return e
-  | Ok None -> Lwt.return (Ok [])
+  | Error _ as e ->
+    Logs.info (fun m -> m "git kv: pull errored");
+    Lwt.return e
+  | Ok None ->
+    Logs.info (fun m -> m "git kv: pull returned nothing");
+    Lwt.return (Ok [])
   | Ok Some (_, refs) -> match List.find (fun (r, _) -> Git.Reference.equal r t.branch) refs with
     | (_, head) ->
+      Logs.info (fun m -> m "git kv: found a ref being equal, next: shallow");
       Store.shallow t.store head >>= fun () ->
       (* XXX(dinosaure): the shallow must be done **before** the diff. Otherwise
          we will compare [commit0] with [commit0 <- commit1]. We want to compare
          [commit0] and [commit1] (only). *)
+      Logs.info (fun m -> m "git kv: shallow done, next: diff");
       diff t.store t.head head >>= fun diff ->
+      Logs.info (fun m -> m "git kv: diff done");
       t.head <- Some head ; Lwt.return (Ok diff)
-    | exception Not_found -> Lwt.return_error (`Msg (Fmt.str "error fetching: %a does not exist" Git.Reference.pp t.branch))
+    | exception Not_found ->
+      Logs.info (fun m -> m "git kv: exception not found");
+      Lwt.return_error (`Msg (Fmt.str "error fetching: %a does not exist" Git.Reference.pp t.branch))
 
 let connect ctx endpoint =
   let open Lwt.Infix in
+  Logs.info (fun m -> m "git kv: connect");
   init_store () >>= fun store ->
+  Logs.info (fun m -> m "git kv: initialized store");
   let store = to_invalid store in
   let edn, branch = split_url endpoint in
   let t = { ctx ; edn ; branch ; store ; committed= None; in_closure= false; head= None } in
   pull t >>= fun r ->
+  Logs.info (fun m -> m "git kv: pulled");
   let _r = to_invalid r in
   Lwt.return t
 
