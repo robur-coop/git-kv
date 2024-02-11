@@ -43,8 +43,10 @@ val connect : Mimic.ctx -> string -> t Lwt.t
 val branch : t -> Git.Reference.t
 (** [branch t] returns the branch used by the given [t]. *)
 
-val to_octets : t -> string Lwt.t
-(** [to_octets store] returns a serialized version of the given [store]. *)
+val to_octets : ?level:int -> t -> string Lwt.t
+(** [to_octets ?level store] returns a serialized version of the given [store].
+    [level] is the {i zlib} level compression used for Git object (between [0]
+    and [9] including), defaults to [4]. *)
 
 val of_octets : Mimic.ctx -> remote:string -> string ->
   (t, [> `Msg of string]) result Lwt.t

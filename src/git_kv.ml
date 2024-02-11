@@ -183,7 +183,7 @@ let ( >>? ) x f = let open Lwt.Infix in match x with
   | None -> Lwt.return_none
 let ( >>! ) x f = Lwt.Infix.(x >>= f)
 
-let pack t ~commit stream =
+let pack t ?(level= 4) ~commit stream =
   let open Lwt.Infix in
   let load t hash =
     Store.read_inflated t hash >|= function
@@ -227,7 +227,7 @@ let pack t ~commit stream =
     | Some None -> failwith "Try to encode an OBJ_REF object" (* XXX(dinosaure): should never occur! *)
     | Some (Some (_ (* offset *) : int)) | None ->
       Hashtbl.add offsets (Carton.Enc.target_uid targets.(idx)) !cursor ;
-      Carton_lwt.Enc.encode_target ~b ~find ~load:(load t) ~uid targets.(idx) ~cursor:(Int64.to_int !cursor)
+      Carton_lwt.Enc.encode_target ~level ~b ~find ~load:(load t) ~uid targets.(idx) ~cursor:(Int64.to_int !cursor)
       >>= fun (len, encoder) ->
       let payload = Bigstringaf.substring b.o ~off:0 ~len in
       stream (Some payload) ;
@@ -254,7 +254,7 @@ let pack t ~commit stream =
   stream None ;
   Lwt.return_unit
 
-let to_octets t = match t.head with
+let to_octets ?level t = match t.head with
   | None ->
     Lwt.return "PACK\000\000\000\002\000\000\000\000\
                 \x02\x9d\x08\x82\x3b\xd8\xa8\xea\xb5\x10\xad\x6a\xc7\x5c\x82\x3c\xfd\x3e\xd3\x1e"
@@ -262,7 +262,7 @@ let to_octets t = match t.head with
     let buf = Buffer.create 0x100 in
     let stream = Option.iter (Buffer.add_string buf) in
     let open Lwt.Infix in
-    pack t.store ~commit stream >|= fun () ->
+    pack ?level t.store ~commit stream >|= fun () ->
     Buffer.contents buf
 
 (* XXX(dinosaure): we have the full-control between [to_octets]/[of_octets]
