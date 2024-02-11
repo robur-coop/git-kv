@@ -243,11 +243,11 @@ let pack t ~commit stream =
           go encoder
         | `End -> Lwt.return_unit in
       let encoder = Carton.Enc.N.dst encoder b.o 0 (Bigstringaf.length b.o) in
-      go encoder in
+      Lwt.pause () >>= fun () -> go encoder in
   let rec go idx =
     if idx < Array.length targets
     then encode_target idx >>= fun () -> go (succ idx)
-    else Lwt.return_unit in
+    else Lwt.pause () in
   go 0 >>= fun () ->
   let hash = SHA1.get !ctx in
   stream (Some (SHA1.to_raw_string hash)) ;
