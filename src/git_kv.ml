@@ -256,39 +256,73 @@ let pack t ?(level= 4) ~commit stream =
 
 let to_octets ?level t = match t.head with
   | None ->
-    Lwt.return "PACK\000\000\000\002\000\000\000\000\
-                \x02\x9d\x08\x82\x3b\xd8\xa8\xea\xb5\x10\xad\x6a\xc7\x5c\x82\x3c\xfd\x3e\xd3\x1e"
+    let str = "PACK\000\000\000\002\000\000\000\000\
+               \x02\x9d\x08\x82\x3b\xd8\xa8\xea\xb5\x10\xad\x6a\xc7\x5c\x82\x3c\xfd\x3e\xd3\x1e" in
+    Lwt_stream.of_list [ str ]
   | Some commit ->
-    let buf = Buffer.create 0x100 in
-    let stream = Option.iter (Buffer.add_string buf) in
-    let open Lwt.Infix in
-    pack ?level t.store ~commit stream >|= fun () ->
-    Buffer.contents buf
+    let stream, push = Lwt_stream.create () in
+    Lwt.async (fun () -> pack ?level t.store ~commit push);
+    stream
 
 (* XXX(dinosaure): we have the full-control between [to_octets]/[of_octets]
    and we are currently not able to generate a PACK file with OBJ_REF objects.
    That mostly means that only one pass is enough to extract all objects!
    OBJ_OFS objects need only already consumed objects. *)
 
-let map contents ~pos len =
+let map buf ~pos len =
+  let str = Buffer.contents buf in
   let off = Int64.to_int pos in
-  let len = min (Bigstringaf.length contents - off) len in
-  Bigstringaf.sub ~off:(Int64.to_int pos) ~len contents
+  let len = min (String.length str - off) len in
+  Bigstringaf.of_string str ~off:(Int64.to_int pos) ~len
 
-let analyze store contents =
-  let len = String.length contents in
-  let contents = Bigstringaf.of_string contents ~off:0 ~len in
+let blit_from_string src src_off dst dst_off len =
+  Bigstringaf.blit_from_string src ~src_off dst ~dst_off ~len
+
+let read stream =
+  let ke = Ke.Rke.create ~capacity:0x1000 Bigarray.char in
+  let rec go filled input =
+    match Ke.Rke.N.peek ke with
+    | [] -> begin
+      let open Lwt.Infix in
+      Lwt_stream.get stream >>= function
+      | Some str ->
+        Ke.Rke.N.push ke ~blit:blit_from_string ~length:String.length str;
+        go filled input
+      | None -> Lwt.return filled end
+    | src :: _ ->
+      let src = Cstruct.of_bigarray src in
+      let len = min (Cstruct.length input) (Cstruct.length src) in
+      Cstruct.blit src 0 input 0 len;
+      Ke.Rke.N.shift_exn ke len;
+      if len < Cstruct.length input
+      then go (filled + len) (Cstruct.shift input len)
+      else Lwt.return (filled + len) in
+  fun input -> go 0 input
+
+let analyze store stream =
+  let tmp = Cstruct.create 0x1000 in
+  let buf = Buffer.create 0x1000 in
+  let read_cstruct tmp =
+    let open Lwt.Infix in
+    read stream tmp >>= fun len ->
+    Buffer.add_string buf (Cstruct.to_string ~off:0 ~len tmp);
+    Lwt.return len in
   let allocate bits = De.make_window ~bits in
   let never _ = assert false in
-  let pack = Carton.Dec.make contents ~allocate
+  let pack = Carton.Dec.make buf ~allocate
     ~z:(De.bigstring_create De.io_buffer_size)
     ~uid_ln:SHA1.length ~uid_rw:SHA1.of_raw_string never in
   let objects = Hashtbl.create 0x100 in
 
   let rec go head decoder = let open Lwt.Infix in
     match First_pass.decode decoder with
-    | `Await _decoder
-    | `Peek _decoder -> failwith "Truncated PACK file"
+    | `Await decoder ->
+      read_cstruct tmp >>= fun len ->
+      go head (First_pass.src decoder (Cstruct.to_bigarray tmp) 0 len)
+    | `Peek decoder ->
+      let keep = First_pass.src_rem decoder in
+      read_cstruct (Cstruct.shift tmp keep) >>= fun len ->
+      go head (First_pass.src decoder (Cstruct.to_bigarray tmp) 0 (keep + len))
     | `Entry ({ First_pass.kind= Base _; offset= cursor; _ }, decoder) ->
       let weight = Carton.Dec.weight_of_offset ~map pack ~weight:Carton.Dec.null cursor in
       let raw = Carton.Dec.make_raw ~weight in
@@ -325,7 +359,6 @@ let analyze store contents =
     | `End _hash -> Lwt.return head
     | `Malformed err -> failwith err in
   let decoder = First_pass.decoder ~o:(Bigstringaf.create De.io_buffer_size) ~allocate `Manual in
-  let decoder = First_pass.src decoder contents 0 len in
   go None decoder
 
 let of_octets ctx ~remote data =
@@ -339,9 +372,6 @@ let of_octets ctx ~remote data =
        let edn, branch = split_url remote in
        Lwt.return_ok { ctx ; edn ; branch ; store ; committed= None; in_closure= false; head; })
     (fun exn ->
-       Fmt.epr ">>> Got an exception: %s.\n%!" (Printexc.to_string exn) ;
-       Fmt.epr ">>> %s.\n%!"
-         (Printexc.raw_backtrace_to_string (Printexc.get_raw_backtrace ())) ;
        Lwt.return_error (`Msg "Invalid PACK file"))
 
 module Make (Pclock : Mirage_clock.PCLOCK) = struct

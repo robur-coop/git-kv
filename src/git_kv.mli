@@ -43,12 +43,12 @@ val connect : Mimic.ctx -> string -> t Lwt.t
 val branch : t -> Git.Reference.t
 (** [branch t] returns the branch used by the given [t]. *)
 
-val to_octets : ?level:int -> t -> string Lwt.t
+val to_octets : ?level:int -> t -> string Lwt_stream.t
 (** [to_octets ?level store] returns a serialized version of the given [store].
     [level] is the {i zlib} level compression used for Git object (between [0]
     and [9] including), defaults to [4]. *)
 
-val of_octets : Mimic.ctx -> remote:string -> string ->
+val of_octets : Mimic.ctx -> remote:string -> string Lwt_stream.t ->
   (t, [> `Msg of string]) result Lwt.t
 (** [of_octets ctx ~remote contents] tries to re-create a {!type:t} from its
     serialized version [contents]. This function does not do I/O and the
