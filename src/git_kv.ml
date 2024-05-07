@@ -453,7 +453,7 @@ module Make (Pclock : Mirage_clock.PCLOCK) = struct
   let digest t key =
     Option.fold
       ~none:(Error (`Not_found key))
-      ~some:(fun x -> Ok (Store.Hash.to_hex x))
+      ~some:(fun x -> Ok (Store.Hash.to_raw_string x))
       t.head |> Lwt.return
 
   let size t key =
