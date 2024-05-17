@@ -95,8 +95,8 @@ let pull ~quiet store =
 
 let save store filename =
   let oc = open_out filename in
-  Git_kv.to_octets store >>= fun contents ->
-  output_string oc contents ;
+  let stream = Git_kv.to_octets store in
+  Lwt_stream.iter_p (fun str -> output_string oc str; Lwt.return_unit) stream >>= fun () ->
   close_out oc ;
   Lwt.return (Ok 0)
 
@@ -164,7 +164,8 @@ let run remote = function
       Bytes.unsafe_to_string bs in
     Lwt_main.run
     ( Git_unix.ctx (Happy_eyeballs_lwt.create ()) >>= fun ctx ->
-      Git_kv.of_octets ctx ~remote contents >>= function
+      let stream = Lwt_stream.of_list [ contents ] in
+      Git_kv.of_octets ctx ~remote stream >>= function
     | Ok t -> repl t Unix.stdin
     | Error (`Msg err) -> Fmt.failwith "%s." err )
 
