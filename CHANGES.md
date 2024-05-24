@@ -1,3 +1,8 @@
+# v0.0.5 2024-05-17 - Paris (France)
+
+- Return a raw representation of the hash instead of the hex representation (@hannesm, #35)
+- Stream in & out {of,to}_octets instead of manipulating the whole PACK file (@dinosaure, #33)
+
 # v0.0.4 2024-04-24 - Paris (France)
 
 - Add a branch accessor (@dinosaure, #30)
