@@ -2,14 +2,12 @@
  (package git-kv)
  (applies_to simple)
  (locks p9418)
- (enabled_if (= "true" {%read:git-daemon}))
  (deps %{exe:../app/mgit.exe}))
 
 (cram
  (package git-kv)
  (applies_to fold)
  (locks p9418)
- (enabled_if (= "true" {%read:git-daemon}))
  (deps %{exe:../app/mgit.exe}))
 
 (executable
