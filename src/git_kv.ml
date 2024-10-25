@@ -395,25 +395,26 @@ module Make (Pclock : Mirage_clock.PCLOCK) = struct
     | `Reference_not_found _ | `Msg _ as err -> Store.pp_error ppf err
     | `Hash_not_found hash -> Store.pp_error ppf (`Not_found hash)
 
+  let noppp t key =
+    match t.committed, t.head with
+    | None, None -> Lwt.return None
+    | Some (tree_root_hash, _), _ ->
+      Search.find t.store tree_root_hash (`Path (Mirage_kv.Key.segments key))
+    | None, Some commit ->
+      Search.find t.store commit (`Commit (`Path (Mirage_kv.Key.segments key)))
+
   let exists t key =
     let open Lwt.Infix in
-    match t.head with
+    noppp t key >>= function
     | None -> Lwt.return (Ok None)
-    | Some head ->
-      Search.mem t.store head (`Commit (`Path (Mirage_kv.Key.segments key))) >>= function
-      | false -> Lwt.return (Ok None)
-      | true ->
-        Search.find t.store head (`Commit (`Path (Mirage_kv.Key.segments key)))
-        >|= Option.get >>= Store.read_exn t.store >>= function
+    | Some tree_hash ->
+      Store.read_exn t.store tree_hash >>= function
         | Blob _ -> Lwt.return (Ok (Some `Value))
         | Tree _ | Commit _ | Tag _ -> Lwt.return (Ok (Some `Dictionary))
 
   let get t key =
     let open Lwt.Infix in
-    match t.head with
-    | None -> Lwt.return (Error (`Not_found key))
-    | Some head ->
-      Search.find t.store head (`Commit (`Path (Mirage_kv.Key.segments key))) >>= function
+    noppp t key >>= function
       | None -> Lwt.return (Error (`Not_found key))
       | Some blob ->
         Store.read_exn t.store blob >|= function
@@ -434,10 +435,7 @@ module Make (Pclock : Mirage_clock.PCLOCK) = struct
 
   let list t key =
     let open Lwt.Infix in
-    match t.head with
-    | None -> Lwt.return (Error (`Not_found key))
-    | Some head ->
-      Search.find t.store head (`Commit (`Path (Mirage_kv.Key.segments key))) >>= function
+    noppp t key >>= function
       | None -> Lwt.return (Error (`Not_found key))
       | Some tree ->
         Store.read_exn t.store tree >>= function
@@ -455,6 +453,8 @@ module Make (Pclock : Mirage_clock.PCLOCK) = struct
 
   let last_modified t key =
     let open Lwt.Infix in
+    noppp t key >>=
+    (* FIXME *)
     Option.fold
       ~none:(Lwt.return (Error (`Not_found key)))
       ~some:(fun head ->
@@ -478,13 +478,14 @@ module Make (Pclock : Mirage_clock.PCLOCK) = struct
             in
             Ok ts
           | _ -> assert false)
-      t.head
 
   let digest t key =
+    let open Lwt.Infix in
+    noppp t key >>=
+    (* FIXME *)
     Option.fold
-      ~none:(Error (`Not_found key))
-      ~some:(fun x -> Ok (Store.Hash.to_raw_string x))
-      t.head |> Lwt.return
+      ~none:(Lwt.return (Error (`Not_found key)))
+      ~some:(fun x -> Lwt.return (Ok (Store.Hash.to_raw_string x)))
 
   let size t key =
     let open Lwt_result.Infix in
@@ -593,6 +594,7 @@ module Make (Pclock : Mirage_clock.PCLOCK) = struct
 
   let remove ?and_commit t key =
     let segs = Mirage_kv.Key.segments key in
+    (* FIXME: t.head *)
     match List.rev segs, t.head with
     | [], _ -> assert false
     | _, None -> Lwt.return_ok () (* XXX(dinosaure): or [`Not_found]? *)

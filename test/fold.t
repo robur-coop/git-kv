@@ -11,7 +11,7 @@ Batch operation
   > exists /bar
   > quit
   > quit
-  /bar does not exists
+  /bar exists as a value
   $ mgit git://localhost/simple#main <<EOF
   > list /
   > get /bar
