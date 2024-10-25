@@ -11,14 +11,14 @@ Batch operation
   > exists /bar
   > quit
   > quit
-  /"bar" does not exists
+  /bar does not exists
   $ mgit git://localhost/simple#main <<EOF
   > list /
   > get /bar
   > get /foo
   > quit
-  - bar
-  - foo
+  - /bar
+  - /foo
   00000000: 4769 7420 726f 636b 7321                 Git rocks!
   00000000: 4865 6c6c 6f20 576f 726c 6421            Hello World!
   $ cd simple
