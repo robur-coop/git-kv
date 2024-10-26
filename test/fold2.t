@@ -12,7 +12,7 @@ Reading during batch operation
   - /bar
   00000000: 4769 7420 726f 636b 7321                 Git rocks!
   $ cd simple
-  $ git log main --pretty=oneline | wc -l
+  $ git log main --pretty=oneline | wc -l | tr -d ' '
   1
   $ cd ..
   $ kill $(cat pid)
