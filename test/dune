@@ -25,3 +25,8 @@
  (with-stdout-to
   git-daemon
   (run ./git_daemon_exists.exe)))
+
+(test
+ (name tests)
+ (libraries git-kv alcotest bos)
+ (modules tests))
