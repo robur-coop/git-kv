@@ -28,5 +28,5 @@
 
 (test
  (name tests)
- (libraries git-kv alcotest bos)
+ (libraries git-kv alcotest bos mirage-clock-unix lwt.unix git-unix)
  (modules tests))

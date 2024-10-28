@@ -8,8 +8,8 @@ type t =
   ; edn : Smart_git.Endpoint.t
   ; branch : Git.Reference.t
   ; store : Store.t
-  ; mutable committed : (Digestif.SHA1.t * unit Lwt.t) option
-  ; in_closure : bool
+  ; mutable committed : Digestif.SHA1.t option
+  ; mutable change_and_push_waiter : unit Lwt.t option
   ; mutable head : Store.hash option }
 
 let init_store () =
@@ -102,7 +102,7 @@ let connect ctx endpoint =
   init_store () >>= fun store ->
   let store = to_invalid store in
   let edn, branch = split_url endpoint in
-  let t = { ctx ; edn ; branch ; store ; committed= None; in_closure= false; head= None } in
+  let t = { ctx ; edn ; branch ; store ; committed= None; change_and_push_waiter= None; head= None } in
   pull t >>= fun r ->
   let _r = to_invalid r in
   Lwt.return t
@@ -370,8 +370,8 @@ let of_octets ctx ~remote data =
        Result.fold ~ok:Fun.id ~error:(function `Msg msg -> failwith msg) >>= fun store ->
        analyze store data >>= fun head ->
        let edn, branch = split_url remote in
-       Lwt.return_ok { ctx ; edn ; branch ; store ; committed= None; in_closure= false; head; })
-    (fun exn ->
+       Lwt.return_ok { ctx ; edn ; branch ; store ; committed= None; change_and_push_waiter= None; head; })
+    (fun _exn ->
        Lwt.return_error (`Msg "Invalid PACK file"))
 
 module Make (Pclock : Mirage_clock.PCLOCK) = struct
@@ -395,17 +395,19 @@ module Make (Pclock : Mirage_clock.PCLOCK) = struct
     | `Reference_not_found _ | `Msg _ as err -> Store.pp_error ppf err
     | `Hash_not_found hash -> Store.pp_error ppf (`Not_found hash)
 
-  let noppp t key =
+  let now () = Int64.of_float (Ptime.to_float_s (Ptime.v (Pclock.now_d_ps ())))
+
+  let find_blob t key =
     match t.committed, t.head with
     | None, None -> Lwt.return None
-    | Some (tree_root_hash, _), _ ->
+    | Some tree_root_hash, _ ->
       Search.find t.store tree_root_hash (`Path (Mirage_kv.Key.segments key))
     | None, Some commit ->
       Search.find t.store commit (`Commit (`Path (Mirage_kv.Key.segments key)))
 
   let exists t key =
     let open Lwt.Infix in
-    noppp t key >>= function
+    find_blob t key >>= function
     | None -> Lwt.return (Ok None)
     | Some tree_hash ->
       Store.read_exn t.store tree_hash >>= function
@@ -414,7 +416,7 @@ module Make (Pclock : Mirage_clock.PCLOCK) = struct
 
   let get t key =
     let open Lwt.Infix in
-    noppp t key >>= function
+    find_blob t key >>= function
       | None -> Lwt.return (Error (`Not_found key))
       | Some blob ->
         Store.read_exn t.store blob >|= function
@@ -435,7 +437,7 @@ module Make (Pclock : Mirage_clock.PCLOCK) = struct
 
   let list t key =
     let open Lwt.Infix in
-    noppp t key >>= function
+    find_blob t key >>= function
       | None -> Lwt.return (Error (`Not_found key))
       | Some tree ->
         Store.read_exn t.store tree >>= function
@@ -453,8 +455,7 @@ module Make (Pclock : Mirage_clock.PCLOCK) = struct
 
   let last_modified t key =
     let open Lwt.Infix in
-    noppp t key >>=
-    (* FIXME *)
+    find_blob t key >>=
     Option.fold
       ~none:(Lwt.return (Error (`Not_found key)))
       ~some:(fun head ->
@@ -477,12 +478,14 @@ module Make (Pclock : Mirage_clock.PCLOCK) = struct
                 ~some:Fun.id (Ptime.of_float_s (Int64.to_float secs))
             in
             Ok ts
-          | _ -> assert false)
+          | _ ->
+            Ok (Option.fold
+              ~none:Ptime.epoch
+              ~some:Fun.id (Ptime.of_float_s (Int64.to_float (now ())))))
 
   let digest t key =
     let open Lwt.Infix in
-    noppp t key >>=
-    (* FIXME *)
+    find_blob t key >>=
     Option.fold
       ~none:(Lwt.return (Error (`Not_found key)))
       ~some:(fun x -> Lwt.return (Ok (Store.Hash.to_raw_string x)))
@@ -492,7 +495,7 @@ module Make (Pclock : Mirage_clock.PCLOCK) = struct
     get t key >|= fun data ->
     Optint.Int63.of_int (String.length data)
 
-  let author ?(name = "Git KV") ?(email = "git@mirage.io") now =
+  let author ?(name = "Git KV") ?(email = "git-noreply@robur.coop") now =
     { Git.User.name ; email ; date = now (), None }
 
   let rec unroll_tree t ~tree_root_hash (pred_perm, pred_name, pred_hash) rpath =
@@ -521,7 +524,7 @@ module Make (Pclock : Mirage_clock.PCLOCK) = struct
 
   let tree_root_hash_of_store t =
     match t.committed, t.head with
-    | Some (tree_root_hash, _), _ -> Lwt.return_ok tree_root_hash
+    | Some tree_root_hash, _ -> Lwt.return_ok tree_root_hash
     | None, None ->
       let open Lwt_result.Infix in
       let tree = Store.Value.Tree.v [] in
@@ -534,7 +537,6 @@ module Make (Pclock : Mirage_clock.PCLOCK) = struct
       | _ -> Lwt.return_error (`Msg (Fmt.str "The current HEAD value (%a) is not a commit" Digestif.SHA1.pp commit))
 
   let ( >>? ) = Lwt_result.bind
-  let now () = Int64.of_float (Ptime.to_float_s (Ptime.v (Pclock.now_d_ps ())))
 
   let set ?and_commit t key contents =
     let segs = Mirage_kv.Key.segments key in
@@ -549,14 +551,14 @@ module Make (Pclock : Mirage_clock.PCLOCK) = struct
       tree_root_hash_of_store t >>= fun tree_root_hash ->
       unroll_tree t ~tree_root_hash (`Normal, name, hash) (List.tl rpath) >>= fun tree_root_hash ->
       match and_commit with
-      | Some (_old_tree_root_hash, th) ->
-        t.committed <- Some (tree_root_hash, th) ;
+      | Some _old_tree_root_hash ->
+        t.committed <- Some tree_root_hash ;
         Lwt.return_ok ()
       | None ->
         let committer = author now in
         let author    = author now in
         let action    = Option.fold ~none:(`Create t.branch) ~some:(fun _ -> `Update (t.branch, t.branch)) t.head in
-        let parents   = Option.value ~default:[] (Option.map (fun head -> [ head ]) t.head) in
+        let parents   = Option.to_list t.head in
         let commit    = Store.Value.Commit.make ~tree:tree_root_hash ~author ~committer
           ~parents (Some "Committed by git-kv") in
         Store.write t.store (Git.Value.Commit commit) >>= fun (hash, _) ->
@@ -594,11 +596,9 @@ module Make (Pclock : Mirage_clock.PCLOCK) = struct
 
   let remove ?and_commit t key =
     let segs = Mirage_kv.Key.segments key in
-    (* FIXME: t.head *)
-    match List.rev segs, t.head with
-    | [], _ -> assert false
-    | _, None -> Lwt.return_ok () (* XXX(dinosaure): or [`Not_found]? *)
-    | name :: [], Some head ->
+    match List.rev segs with
+    | [] -> assert false
+    | name :: [] ->
       let open Lwt_result.Infix in
       tree_root_hash_of_store t >>= fun tree_root_hash ->
       Store.read_exn t.store tree_root_hash >>! fun tree_root ->
@@ -607,12 +607,13 @@ module Make (Pclock : Mirage_clock.PCLOCK) = struct
       let open Lwt_result.Infix in
       Store.write t.store (Git.Value.Tree tree_root) >>= fun (tree_root_hash, _) ->
       ( match and_commit with
-      | Some (_old_tree_root_hash, th) -> t.committed <- Some (tree_root_hash, th) ; Lwt.return_ok ()
+      | Some _old_tree_root_hash -> t.committed <- Some tree_root_hash ; Lwt.return_ok ()
       | None ->
         let committer = author now in
         let author    = author now in
+        let parents = Option.to_list t.head in
         let commit    = Store.Value.Commit.make ~tree:tree_root_hash ~author ~committer
-          ~parents:[ head ] (Some "Committed by git-kv") in
+          ~parents (Some "Committed by git-kv") in
         Store.write t.store (Git.Value.Commit commit) >>= fun (hash, _) ->
         Store.Ref.write t.store t.branch (Git.Reference.uid hash) >>= fun () ->
         Lwt.Infix.(Sync.push ~capabilities ~ctx:t.ctx t.edn t.store [ `Update (t.branch, t.branch) ]
@@ -620,7 +621,7 @@ module Make (Pclock : Mirage_clock.PCLOCK) = struct
             Git.Reference.pp t.branch Sync.pp_error err))
           >>? fun () -> Store.shallow t.store hash >|= Result.ok)
         >>= fun () -> t.head <- Some hash ; Lwt.return_ok () )
-    | name :: pred_name :: rest, Some head ->
+    | name :: pred_name :: rest ->
       let open Lwt_result.Infix in
       tree_root_hash_of_store t >>= fun tree_root_hash ->
       Search.find t.store tree_root_hash (`Path (List.rev (pred_name :: rest))) >>! function
@@ -631,12 +632,13 @@ module Make (Pclock : Mirage_clock.PCLOCK) = struct
           Store.write t.store (Git.Value.Tree tree) >>= fun (pred_hash, _) ->
           unroll_tree t ~tree_root_hash (`Dir, pred_name, pred_hash) rest >>= fun tree_root_hash ->
           ( match and_commit with
-          | Some (_old_tree_root_hash, th) -> t.committed <- Some (tree_root_hash, th) ; Lwt.return_ok ()
+          | Some _old_tree_root_hash -> t.committed <- Some tree_root_hash ; Lwt.return_ok ()
           | None ->
             let committer = author now in
             let author    = author now in
+            let parents = Option.to_list t.head in
             let commit    = Store.Value.Commit.make ~tree:tree_root_hash ~author ~committer
-              ~parents:[ head ] (Some "Committed by git-kv") in
+              ~parents (Some "Committed by git-kv") in
             Store.write t.store (Git.Value.Commit commit) >>= fun (hash, _) ->
             Store.Ref.write t.store t.branch (Git.Reference.uid hash) >>= fun () ->
             Lwt.Infix.(Sync.push ~capabilities ~ctx:t.ctx t.edn t.store [ `Update (t.branch, t.branch) ]
@@ -672,36 +674,39 @@ module Make (Pclock : Mirage_clock.PCLOCK) = struct
 
   let change_and_push t ?author:name ?author_email:email ?(message = "Committed by git-kv") f =
     let open Lwt.Infix in
-    if t.in_closure then
-      Lwt.return_error (`Msg "Nested change_and_push")
-    else
+    match t.committed with
+    | Some _ -> Lwt.return_error (`Msg "Nested change_and_push")
+    | None ->
       (* XXX(dinosaure): serialize [change_and_push]. If we do
          [Lwt.both (change_and_push ..) (change_and_push ..)], they can not run
          concurrently! The second will waiting the first to finish. *)
-      ( match t.committed with
-        | None -> Lwt.return_unit
-        | Some (_tree_root_hash, th) -> th ) >>= fun () ->
       let th, wk = Lwt.wait () in
+      let th' = t.change_and_push_waiter in
+      t.change_and_push_waiter <- Some th;
+      ( match th' with
+        | None -> Lwt.return_unit
+        | Some th -> th ) >>= fun () ->
       ( let open Lwt_result.Infix in
         tree_root_hash_of_store t >>= fun tree_root_hash ->
-        t.committed <- Some (tree_root_hash, th) ;
-        let t' = { t with in_closure= true } in
+        t.change_and_push_waiter <- Some th ;
+        let t' = { t with committed = Some tree_root_hash } in
         f t' >>! fun res ->
         (* XXX(dinosaure): we assume that only [change_and_push] can reset [t.committed] to [None] and
            we ensured that [change_and_push] can not be called into [f]. So we are sure that [t'.committed]
            must be [Some _] in anyway. *)
-        let[@warning "-8"] Some (new_tree_root_hash, _) = t'.committed in
+        let[@warning "-8"] Some new_tree_root_hash = t'.committed in
         if Digestif.SHA1.equal new_tree_root_hash tree_root_hash
         then Lwt.return_ok res (* XXX(dinosaure): nothing to send! *)
+        else if not (Option.equal Digestif.SHA1.equal t.head t'.head) then
+          Lwt.return (Error (`Msg "store was modified outside of change_and_push, please retry"))
         else
           let action    = Option.fold ~none:(`Create t.branch) ~some:(fun _ -> `Update (t.branch, t.branch)) t.head in
-          let parents   = Option.value ~default:[] (Option.map (fun head -> [ head ]) t.head) in
+          let parents   = Option.to_list t.head in
           let author    = author ?name ?email now in
           let committer = author in
           let commit    = Store.Value.Commit.make ~tree:new_tree_root_hash ~author ~committer
               ~parents (Some message) in
           Store.write t.store (Git.Value.Commit commit) >>= fun (hash, _) ->
-          t.head <- Some hash ;
           Store.Ref.write t.store t.branch (Git.Reference.uid hash) >>= fun () ->
           Lwt.Infix.(Sync.push ~capabilities ~ctx:t.ctx t.edn t.store [ action ]
                      >|= Result.map_error (fun err ->
@@ -709,11 +714,12 @@ module Make (Pclock : Mirage_clock.PCLOCK) = struct
                                  Git.Reference.pp t.branch Sync.pp_error err))
                      >>? fun () ->
                      Store.shallow t.store hash >|= Result.ok) >>= fun () ->
+          t.head <- Some hash ;
           Lwt.return_ok res )
       >|= Result.map_error
         (fun err -> `Msg (Fmt.str "error pushing %a" Store.pp_error err))
       >>= fun res ->
       Lwt.wakeup_later wk () ;
-      t.committed <- None ;
+      t.change_and_push_waiter <- None ;
       Lwt.return res
 end
