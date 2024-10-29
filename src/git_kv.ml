@@ -679,7 +679,11 @@ module Make (Pclock : Mirage_clock.PCLOCK) = struct
     | None ->
       (* XXX(dinosaure): serialize [change_and_push]. If we do
          [Lwt.both (change_and_push ..) (change_and_push ..)], they can not run
-         concurrently! The second will waiting the first to finish. *)
+         concurrently! The second will waiting the first to finish.
+         (reynir): Furthermore, we need to create a new task and update
+         [change_and_push_waiter] before we wait on the existing
+         [change_and_push_waiter] task without any yield point in between to
+         ensure serializability. *)
       let th, wk = Lwt.wait () in
       let th' = t.change_and_push_waiter in
       t.change_and_push_waiter <- Some th;
