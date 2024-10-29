@@ -17,15 +17,6 @@
  (locks p9418)
  (deps %{bin:mgit}))
 
-(executable
- (name git_daemon_exists)
- (libraries unix))
-
-(rule
- (with-stdout-to
-  git-daemon
-  (run ./git_daemon_exists.exe)))
-
 (test
  (name tests)
  (libraries git-kv alcotest bos mirage-clock-unix lwt.unix git-unix)
