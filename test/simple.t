@@ -17,6 +17,7 @@ Simple test of our Git Key-Value store
   > get /foo
   > save db.pack
   > quit
+  > EOF
   00000000: 4865 6c6c 6f20 576f 726c 6421 0a         Hello World!.
   $ tail -c20 db.pack | hxd.xxd
   00000000: e4b2 3437 2e7e 3d7e 8508 3912 3d87 11cd  ..47.~=~..9.=...
@@ -24,6 +25,7 @@ Simple test of our Git Key-Value store
   $ mgit git://localhost/simple db.pack <<EOF
   > get /foo
   > quit
+  > EOF
   00000000: 4865 6c6c 6f20 576f 726c 6421 0a         Hello World!.
   $ cd simple
   $ echo "Git rocks!" > bar
@@ -35,6 +37,7 @@ Simple test of our Git Key-Value store
   > get /bar
   > get /foo
   > quit
+  > EOF
   + /bar
   * /
   00000000: 4769 7420 726f 636b 7321 0a              Git rocks!.

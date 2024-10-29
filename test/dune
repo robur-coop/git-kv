@@ -1,14 +1,21 @@
+(env (_ (binaries (../app/mgit.exe as mgit))))
 (cram
  (package git-kv)
  (applies_to simple)
  (locks p9418)
- (deps %{exe:../app/mgit.exe}))
+ (deps %{bin:mgit}))
 
 (cram
  (package git-kv)
  (applies_to fold)
  (locks p9418)
- (deps %{exe:../app/mgit.exe}))
+ (deps %{bin:mgit}))
+
+(cram
+ (package git-kv)
+ (applies_to fold2)
+ (locks p9418)
+ (deps %{bin:mgit}))
 
 (executable
  (name git_daemon_exists)
@@ -18,3 +25,8 @@
  (with-stdout-to
   git-daemon
   (run ./git_daemon_exists.exe)))
+
+(test
+ (name tests)
+ (libraries git-kv alcotest bos mirage-clock-unix lwt.unix git-unix)
+ (modules tests))
