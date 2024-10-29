@@ -9,8 +9,6 @@ type t =
   ; branch : Git.Reference.t
   ; store : Store.t
   ; mutable committed : Digestif.SHA1.t option
-  ; mutable change_and_push_running : bool
-  ; condition : unit Lwt_condition.t
   ; mutex : Lwt_mutex.t
   ; mutable head : Store.hash option }
 
@@ -104,7 +102,7 @@ let connect ctx endpoint =
   init_store () >>= fun store ->
   let store = to_invalid store in
   let edn, branch = split_url endpoint in
-  let t = { ctx ; edn ; branch ; store ; committed= None; change_and_push_running= false; condition= Lwt_condition.create (); mutex= Lwt_mutex.create (); head= None } in
+  let t = { ctx ; edn ; branch ; store ; committed= None; mutex= Lwt_mutex.create (); head= None } in
   pull t >>= fun r ->
   let _r = to_invalid r in
   Lwt.return t
@@ -372,7 +370,7 @@ let of_octets ctx ~remote data =
        Result.fold ~ok:Fun.id ~error:(function `Msg msg -> failwith msg) >>= fun store ->
        analyze store data >>= fun head ->
        let edn, branch = split_url remote in
-       Lwt.return_ok { ctx ; edn ; branch ; store ; committed= None; change_and_push_running= false; condition= Lwt_condition.create (); mutex= Lwt_mutex.create (); head; })
+       Lwt.return_ok { ctx ; edn ; branch ; store ; committed= None; mutex= Lwt_mutex.create (); head; })
     (fun _exn ->
        Lwt.return_error (`Msg "Invalid PACK file"))
 
@@ -679,55 +677,36 @@ module Make (Pclock : Mirage_clock.PCLOCK) = struct
     match t.committed with
     | Some _ -> Lwt.return_error (`Msg "Nested change_and_push")
     | None ->
-      (* XXX(dinosaure): serialize [change_and_push]. If we do
-         [Lwt.both (change_and_push ..) (change_and_push ..)], they can not run
-         concurrently! The second will waiting the first to finish.
-         (reynir): Furthermore, we need to create a new task and update
-         [change_and_push_waiter] before we wait on the existing
-         [change_and_push_waiter] task without any yield point in between to
-         ensure serializability. *)
-      let open Lwt.Syntax in
-      let* () = Lwt_mutex.with_lock t.mutex @@ fun () ->
-        let rec await () =
-          if t.change_and_push_running
-          then Lwt_condition.wait ~mutex:t.mutex t.condition >>= await
-          else begin t.change_and_push_running <- true; Lwt.return_unit end in
-        await () in
-      ( let open Lwt_result.Infix in
-        tree_root_hash_of_store t >>= fun tree_root_hash ->
-        let t' = { t with committed = Some tree_root_hash } in
-        f t' >>! fun res ->
-        (* XXX(dinosaure): we assume that only [change_and_push] can reset [t.committed] to [None] and
-           we ensured that [change_and_push] can not be called into [f]. So we are sure that [t'.committed]
-           must be [Some _] in anyway. *)
-        let[@warning "-8"] Some new_tree_root_hash = t'.committed in
-        if Digestif.SHA1.equal new_tree_root_hash tree_root_hash
-        then Lwt.return_ok res (* XXX(dinosaure): nothing to send! *)
-        else if not (Option.equal Digestif.SHA1.equal t.head t'.head) then
-          Lwt.return (Error (`Msg "store was modified outside of change_and_push, please retry"))
-        else
-          let action    = Option.fold ~none:(`Create t.branch) ~some:(fun _ -> `Update (t.branch, t.branch)) t.head in
-          let parents   = Option.to_list t.head in
-          let author    = author ?name ?email now in
-          let committer = author in
-          let commit    = Store.Value.Commit.make ~tree:new_tree_root_hash ~author ~committer
-              ~parents (Some message) in
-          Store.write t.store (Git.Value.Commit commit) >>= fun (hash, _) ->
-          Store.Ref.write t.store t.branch (Git.Reference.uid hash) >>= fun () ->
-          Lwt.Infix.(Sync.push ~capabilities ~ctx:t.ctx t.edn t.store [ action ]
-                     >|= Result.map_error (fun err ->
-                         `Msg (Fmt.str "error pushing branch %a: %a"
-                                 Git.Reference.pp t.branch Sync.pp_error err))
-                     >>? fun () ->
-                     Store.shallow t.store hash >|= Result.ok) >>= fun () ->
-          t.head <- Some hash ;
-          Lwt.return_ok res )
-      >|= Result.map_error
-        (fun err -> `Msg (Fmt.str "error pushing %a" Store.pp_error err))
-      >>= fun res ->
-      let* () = Lwt_mutex.with_lock t.mutex @@ fun () ->
-        t.change_and_push_running <- false;
-        Lwt_condition.signal t.condition ();
-        Lwt.return_unit in
-      Lwt.return res
+      Lwt_mutex.with_lock t.mutex (fun () ->
+          (let open Lwt_result.Infix in
+           tree_root_hash_of_store t >>= fun tree_root_hash ->
+           let t' = { t with committed = Some tree_root_hash } in
+           f t' >>! fun res ->
+           (* XXX(dinosaure): we assume that only [change_and_push] can reset [t.committed] to [None] and
+              we ensured that [change_and_push] can not be called into [f]. So we are sure that [t'.committed]
+              must be [Some _] in anyway. *)
+           let[@warning "-8"] Some new_tree_root_hash = t'.committed in
+           if Digestif.SHA1.equal new_tree_root_hash tree_root_hash
+           then Lwt.return_ok res (* XXX(dinosaure): nothing to send! *)
+           else if not (Option.equal Digestif.SHA1.equal t.head t'.head) then
+             Lwt.return (Error (`Msg "store was modified outside of change_and_push, please retry"))
+           else
+             let action    = Option.fold ~none:(`Create t.branch) ~some:(fun _ -> `Update (t.branch, t.branch)) t.head in
+             let parents   = Option.to_list t.head in
+             let author    = author ?name ?email now in
+             let committer = author in
+             let commit    = Store.Value.Commit.make ~tree:new_tree_root_hash ~author ~committer
+                 ~parents (Some message) in
+             Store.write t.store (Git.Value.Commit commit) >>= fun (hash, _) ->
+             Store.Ref.write t.store t.branch (Git.Reference.uid hash) >>= fun () ->
+             Lwt.Infix.(Sync.push ~capabilities ~ctx:t.ctx t.edn t.store [ action ]
+                        >|= Result.map_error (fun err ->
+                            `Msg (Fmt.str "error pushing branch %a: %a"
+                                    Git.Reference.pp t.branch Sync.pp_error err))
+                        >>? fun () ->
+                        Store.shallow t.store hash >|= Result.ok) >>= fun () ->
+             t.head <- Some hash ;
+             Lwt.return_ok res)
+          >|= Result.map_error
+            (fun err -> `Msg (Fmt.str "error pushing %a" Store.pp_error err)))
 end
