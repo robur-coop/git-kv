@@ -710,6 +710,8 @@ module Make (Pclock : Mirage_clock.PCLOCK) = struct
       remove t source >>= fun () ->
       set t dest contents
     in
+    (* (hannes) we check whether we're in a change_and_push or not, since
+       nested change_and_push are not supported. *)
     match t.committed with
     | Some _ -> op t
     | None ->
