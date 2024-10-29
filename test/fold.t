@@ -11,12 +11,14 @@ Batch operation
   > exists /bar
   > quit
   > quit
+  > EOF
   /bar exists as a value
   $ mgit git://localhost/simple#main <<EOF
   > list /
   > get /bar
   > get /foo
   > quit
+  > EOF
   - /bar
   - /foo
   00000000: 4769 7420 726f 636b 7321                 Git rocks!

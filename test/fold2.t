@@ -9,6 +9,7 @@ Reading during batch operation
   > get /bar
   > quit
   > quit
+  > EOF
   - /bar
   00000000: 4769 7420 726f 636b 7321                 Git rocks!
   $ cd simple
