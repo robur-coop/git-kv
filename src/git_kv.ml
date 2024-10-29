@@ -723,6 +723,9 @@ module Make (Pclock : Mirage_clock.PCLOCK) = struct
         (fun err -> `Msg (Fmt.str "error pushing %a" Store.pp_error err))
       >>= fun res ->
       Lwt.wakeup_later wk () ;
+      (* (hannes) since some other task may have mutated the
+         change_and_push_waiter, we only reset it to None if there's a physical
+         equality between its value and our created task above. *)
       (match t.change_and_push_waiter with
        | Some th' -> if th' == th then t.change_and_push_waiter <- None
        | None -> ());
