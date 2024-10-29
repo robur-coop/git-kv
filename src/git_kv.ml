@@ -652,13 +652,6 @@ module Make (Pclock : Mirage_clock.PCLOCK) = struct
     let open Lwt.Infix in
     remove ?and_commit:t.committed t key >|= Result.map_error to_write_error
 
-  let rename t ~source ~dest =
-    (* TODO(dinosaure): optimize it! It was done on the naive way. *)
-    let open Lwt_result.Infix in
-    get t source >>= fun contents ->
-    remove t source >>= fun () ->
-    set t dest contents
-
   let allocate t key ?last_modified:_ size =
     let open Lwt.Infix in
     exists t key >>= function
@@ -709,4 +702,20 @@ module Make (Pclock : Mirage_clock.PCLOCK) = struct
              Lwt.return_ok res)
           >|= Result.map_error
             (fun err -> `Msg (Fmt.str "error pushing %a" Store.pp_error err)))
+
+  let rename t ~source ~dest =
+    let open Lwt_result.Infix in
+    let op t =
+      get t source >>= fun contents ->
+      remove t source >>= fun () ->
+      set t dest contents
+    in
+    (* (hannes) we check whether we're in a change_and_push or not, since
+       nested change_and_push are not supported. *)
+    match t.committed with
+    | Some _ -> op t
+    | None ->
+      change_and_push t op >>! function
+      | Ok a -> Lwt.return a
+      | Error _ as e -> Lwt.return e
 end
