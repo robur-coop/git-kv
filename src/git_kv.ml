@@ -688,7 +688,6 @@ module Make (Pclock : Mirage_clock.PCLOCK) = struct
         | Some th -> th ) >>= fun () ->
       ( let open Lwt_result.Infix in
         tree_root_hash_of_store t >>= fun tree_root_hash ->
-        t.change_and_push_waiter <- Some th ;
         let t' = { t with committed = Some tree_root_hash } in
         f t' >>! fun res ->
         (* XXX(dinosaure): we assume that only [change_and_push] can reset [t.committed] to [None] and
