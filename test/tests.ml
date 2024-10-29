@@ -180,7 +180,78 @@ let digest_in_change_and_push () =
   | Error `Msg msg ->
     print_endline ("got an error from bos: " ^ msg)
 
-
+let multiple_change_and_push () =
+  match
+    let* (tmpdir, pid) = empty_repo () in
+    Fun.protect ~finally:(fun () -> kill_git pid) (fun () ->
+    Lwt_main.run
+      (
+        Git_unix.ctx (Happy_eyeballs_lwt.create ()) >>= fun ctx ->
+        Git_kv.connect ctx ("git://localhost:9419/" ^ tmpdir) >>= fun t ->
+        let wait = Lwt_mvar.create_empty () in
+        let task_c () =
+          Store.change_and_push t (fun t''' ->
+              print_endline "running 3";
+              print_endline "running 3 - now get";
+              Store.get t''' (Mirage_kv.Key.v "/foo") >>= fun r ->
+              if Result.is_error r then failwith "failure reading foo in third change_and_push";
+              assert (String.equal "value 2" (Result.get_ok r));
+              print_endline "running 3 - now set";
+              Store.set t''' (Mirage_kv.Key.v "/foo") "value 3" >>= fun r ->
+              if Result.is_error r then failwith "failure writing foo in third change_and_push";
+              print_endline "running 3 - now get again";
+              Store.get t''' (Mirage_kv.Key.v "/foo") >>= fun r ->
+              if Result.is_error r then failwith "failure reading foo in third change_and_push adter the write";
+              assert (String.equal "value 3" (Result.get_ok r));
+              print_endline "running 3 - now finished";
+              Lwt.return_unit) >>= fun r ->
+          if Result.is_error r then failwith "failure second change_and_push";
+          Lwt_mvar.put wait ()
+        in
+        let task_b () =
+          Store.change_and_push t (fun t'' ->
+              print_endline "running 2";
+              Lwt.async task_c;
+              print_endline "running 2 - now get";
+              Store.get t'' (Mirage_kv.Key.v "/foo") >>= fun r ->
+              if Result.is_error r then failwith "failure reading foo in second change_and_push";
+              assert (String.equal "value" (Result.get_ok r));
+              print_endline "running 2 - now set";
+              Store.set t'' (Mirage_kv.Key.v "/foo") "value 2" >>= fun r ->
+              if Result.is_error r then failwith "failure writing foo in second change_and_push";
+              print_endline "running 2 - now get again";
+              Store.get t'' (Mirage_kv.Key.v "/foo") >>= fun r ->
+              if Result.is_error r then failwith "failure reading foo in second change_and_push adter the write";
+              assert (String.equal "value 2" (Result.get_ok r));
+              print_endline "running 2 - finished";
+              Lwt.return_unit) >|= fun r ->
+          if Result.is_error r then failwith "failure second change_and_push"
+        in
+        let task_a () =
+          Store.change_and_push t (fun t' ->
+               print_endline "running 1";
+               Lwt.async task_b;
+               print_endline "running 1 - now set";
+               Store.set t' (Mirage_kv.Key.v "/foo") "value" >>= fun r ->
+               if Result.is_error r then Alcotest.fail "failure writing foo in first change_and_push";
+               print_endline "running 1 - now get";
+               Store.get t' (Mirage_kv.Key.v "/foo") >>= fun r ->
+               if Result.is_error r then Alcotest.fail "failure reading foo in first change_and_push, after the write";
+               Alcotest.(check string) "Store.get foo" "value" (Result.get_ok r);
+               print_endline "running 1 - finished";
+               Lwt.return_unit) >|= fun r ->
+          if Result.is_error r then Alcotest.fail "failure first change_and_push"
+        in
+        task_a () >>= fun () ->
+        Lwt_mvar.take wait >>= fun () ->
+        Store.get t (Mirage_kv.Key.v "/foo") >|= fun r ->
+        if Result.is_error r then Alcotest.fail "failure reading outside foo";
+        Alcotest.(check string) "Store.get bar" "value 3" (Result.get_ok r)));
+    Ok ()
+  with
+  | Ok () -> ()
+  | Error `Msg msg ->
+    print_endline ("got an error from bos: " ^ msg)
 
 let basic_tests = [
   "Read in change_and_push", `Quick, read_in_change_and_push ;
@@ -188,6 +259,7 @@ let basic_tests = [
   "Remove in change_and_push", `Quick, remove_in_change_and_push ;
   "Last modified in change_and_push", `Quick, last_modified_in_change_and_push ;
   "Digest in change_and_push", `Quick, digest_in_change_and_push ;
+  "Multiple change_and_push", `Quick, multiple_change_and_push ;
 ]
 
 let tests = [

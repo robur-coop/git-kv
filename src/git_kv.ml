@@ -723,6 +723,8 @@ module Make (Pclock : Mirage_clock.PCLOCK) = struct
         (fun err -> `Msg (Fmt.str "error pushing %a" Store.pp_error err))
       >>= fun res ->
       Lwt.wakeup_later wk () ;
-      t.change_and_push_waiter <- None ;
+      (match t.change_and_push_waiter with
+       | Some th' -> if th' == th then t.change_and_push_waiter <- None
+       | None -> ());
       Lwt.return res
 end
