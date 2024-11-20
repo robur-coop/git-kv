@@ -278,8 +278,7 @@ let map buf ~pos len =
 let blit_from_string src src_off dst dst_off len =
   Bigstringaf.blit_from_string src ~src_off dst ~dst_off ~len
 
-let read stream =
-  let ke = Ke.Rke.create ~capacity:0x1000 Bigarray.char in
+let read ke stream =
   let rec go filled input =
     match Ke.Rke.N.peek ke with
     | [] -> begin
@@ -302,9 +301,10 @@ let read stream =
 let analyze store stream =
   let tmp = Cstruct.create 0x1000 in
   let buf = Buffer.create 0x1000 in
+  let ke = Ke.Rke.create ~capacity:0x1000 Bigarray.char in
   let read_cstruct tmp =
     let open Lwt.Infix in
-    read stream tmp >>= fun len ->
+    read ke stream tmp >>= fun len ->
     Buffer.add_string buf (Cstruct.to_string ~off:0 ~len tmp);
     Lwt.return len in
   let allocate bits = De.make_window ~bits in
