@@ -109,6 +109,8 @@ let connect ctx endpoint =
 
 let branch t = t.branch
 
+let commit t = t.head
+
 type key = Mirage_kv.Key.t
 
 type change = [
