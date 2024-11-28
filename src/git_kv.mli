@@ -43,8 +43,10 @@ val connect : Mimic.ctx -> string -> t Lwt.t
 val branch : t -> Git.Reference.t
 (** [branch t] returns the branch used by the given [t]. *)
 
-val commit : t -> Digestif.SHA1.t option
-(** [commit t] returns the commit used by the given [t]. *)
+val commit : t -> [ `Clean of Digestif.SHA1.t | `Dirty of Digestif.SHA1.t ] option
+(** [commit t] returns the commit used by the given [t]. The commit is either
+    marked [`Dirty _] if we're inside a [change_and_push] or [`Clean _]
+    otherwise. *)
 
 val to_octets : ?level:int -> t -> string Lwt_stream.t
 (** [to_octets ?level store] returns a serialized version of the given [store].
