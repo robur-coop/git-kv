@@ -43,6 +43,9 @@ val connect : Mimic.ctx -> string -> t Lwt.t
 val branch : t -> Git.Reference.t
 (** [branch t] returns the branch used by the given [t]. *)
 
+val commit : t -> Digestif.SHA1.t option
+(** [commit t] returns the commit used by the given [t]. *)
+
 val to_octets : ?level:int -> t -> string Lwt_stream.t
 (** [to_octets ?level store] returns a serialized version of the given [store].
     [level] is the {i zlib} level compression used for Git object (between [0]
