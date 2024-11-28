@@ -109,7 +109,13 @@ let connect ctx endpoint =
 
 let branch t = t.branch
 
-let commit t = t.head
+let commit t =
+  match t.head, t.committed with
+  | None, _ -> None
+  | Some commit, None -> Some (`Clean commit)
+  | Some commit, Some _ ->
+    (* XXX: this is not precise as we can have made zero changes *)
+    Some (`Dirty commit)
 
 type key = Mirage_kv.Key.t
 
