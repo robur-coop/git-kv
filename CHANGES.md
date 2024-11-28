@@ -1,3 +1,9 @@
+# v0.1.1 2024-11-28 - Vig (Denmark)
+
+- Remove unused code from test setup (!4 - @hannesm)
+- **BUG FIX**: of_octets: create ring buffer earlier to avoid missing data (!5 - @hanensm, review by @dinosaure @reynir)
+- Add function `commit : t -> Digestif.SHA1.t option` (!6 !8 - @hannesm @reynir, review by @dinosaure)
+
 # v0.1.0 2024-10-29 - Berlin (Germany) and Bamenda (Cameroon)
 
 - Refine change_and_push semantics (fixing on GitHub #1 #2 - @reynir @dinosaure @hannesm git.robur.coop #2)
