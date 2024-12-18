@@ -463,33 +463,35 @@ module Make (Pclock : Mirage_clock.PCLOCK) = struct
 
   let last_modified t key =
     let open Lwt.Infix in
-    find_blob t key >>=
-    Option.fold
-      ~none:(Lwt.return (Error (`Not_found key)))
-      ~some:(fun head ->
-          Store.read_exn t.store head >|= function
-          | Commit c ->
-            let author = Git_commit.author c in
-            let secs, tz_offset = author.Git.User.date in
-            let secs =
-              Option.fold ~none:secs
-                ~some:(fun { Git.User.sign ; hours ; minutes } ->
-                    let tz_off = Int64.(mul (add (mul (of_int hours) 60L) (of_int minutes)) 60L) in
-                    match sign with
-                    | `Plus -> Int64.(sub secs tz_off)
-                    | `Minus -> Int64.(add secs tz_off))
-                tz_offset
-            in
-            let ts =
-              Option.fold
-                ~none:Ptime.epoch
-                ~some:Fun.id (Ptime.of_float_s (Int64.to_float secs))
-            in
-            Ok ts
-          | _ ->
-            Ok (Option.fold
-              ~none:Ptime.epoch
-              ~some:Fun.id (Ptime.of_float_s (Int64.to_float (now ())))))
+    match t.committed, t.head with
+    | None, None ->
+      Lwt.return (Error (`Not_found key))
+    | Some _, _ ->
+      Lwt.return_ok
+        (Option.fold
+           ~none:Ptime.epoch
+           ~some:Fun.id (Ptime.of_float_s (Int64.to_float (now ()))))
+    | None, Some head ->
+      Store.read_exn t.store head >|= function
+      | Commit c ->
+        let author = Git_commit.author c in
+        let secs, tz_offset = author.Git.User.date in
+        let secs =
+          Option.fold ~none:secs
+            ~some:(fun { Git.User.sign ; hours ; minutes } ->
+                let tz_off = Int64.(mul (add (mul (of_int hours) 60L) (of_int minutes)) 60L) in
+                match sign with
+                | `Plus -> Int64.(sub secs tz_off)
+                | `Minus -> Int64.(add secs tz_off))
+            tz_offset
+        in
+        let ts =
+          Option.fold
+            ~none:Ptime.epoch
+            ~some:Fun.id (Ptime.of_float_s (Int64.to_float secs))
+        in
+        Ok ts
+      | _ -> assert false
 
   let digest t key =
     let open Lwt.Infix in
