@@ -82,6 +82,15 @@ let list ~quiet store key =
     if not quiet then Fmt.epr "%a.\n%!" Store.pp_error err ;
     Lwt.return (Ok 1)
 
+let last_modified ~quiet store key =
+  Store.last_modified store key >>= function
+  | Ok time ->
+    Fmt.pr "%a\n%!" Ptime.pp time;
+    Lwt.return (Ok 0)
+  | Error err ->
+    if not quiet then Fmt.epr "%a.\n%!" Store.pp_error err ;
+    Lwt.return (Ok 1)
+
 let pull ~quiet store =
   Git_kv.pull store >>= function
   | Error (`Msg err) -> if not quiet then Fmt.epr "%s.\n%!" err ; Lwt.return (Ok 1)
@@ -133,6 +142,9 @@ let repl store fd_in =
       >|= ignore >>= fun () -> go store0
     | [ "list"; key; ] ->
       with_key ~f:(list ~quiet:false store0) key
+      >|= ignore >>= fun () -> go store0
+    | [ "mtime"; key; ] ->
+      with_key ~f:(last_modified ~quiet:false store0) key
       >|= ignore >>= fun () -> go store0
     | [ "pull"; ] ->
       if is_a_tty then Fmt.pr "\n%!" ; pull ~quiet:false store0
