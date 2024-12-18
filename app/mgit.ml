@@ -169,6 +169,10 @@ let run remote = function
     | Ok t -> repl t Unix.stdin
     | Error (`Msg err) -> Fmt.failwith "%s." err )
 
+let run remote filename_opt =
+  let () = Mirage_crypto_rng_unix.initialize (module Mirage_crypto_rng.Fortuna) in
+  run remote filename_opt
+
 let () = match Sys.argv with
   | [| _; remote; |] -> run remote None
   | [| _; remote; filename; |] when Sys.file_exists filename ->
