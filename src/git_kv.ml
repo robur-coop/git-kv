@@ -472,26 +472,27 @@ module Make (Pclock : Mirage_clock.PCLOCK) = struct
            ~none:Ptime.epoch
            ~some:Fun.id (Ptime.of_float_s (Int64.to_float (now ()))))
     | None, Some head ->
-      Store.read_exn t.store head >|= function
-      | Commit c ->
-        let author = Git_commit.author c in
-        let secs, tz_offset = author.Git.User.date in
-        let secs =
-          Option.fold ~none:secs
-            ~some:(fun { Git.User.sign ; hours ; minutes } ->
-                let tz_off = Int64.(mul (add (mul (of_int hours) 60L) (of_int minutes)) 60L) in
-                match sign with
-                | `Plus -> Int64.(sub secs tz_off)
-                | `Minus -> Int64.(add secs tz_off))
-            tz_offset
-        in
-        let ts =
-          Option.fold
-            ~none:Ptime.epoch
-            ~some:Fun.id (Ptime.of_float_s (Int64.to_float secs))
-        in
-        Ok ts
-      | _ -> assert false
+      (* See https://github.com/ocaml/ocaml/issues/9301 why we have the
+         intermediate [r] value. *)
+      let+ r = Store.read_exn t.store head in
+      let[@warning "-8"] Commit c = r in
+      let author = Git_commit.author c in
+      let secs, tz_offset = author.Git.User.date in
+      let secs =
+        Option.fold ~none:secs
+          ~some:(fun { Git.User.sign ; hours ; minutes } ->
+              let tz_off = Int64.(mul (add (mul (of_int hours) 60L) (of_int minutes)) 60L) in
+              match sign with
+              | `Plus -> Int64.(sub secs tz_off)
+              | `Minus -> Int64.(add secs tz_off))
+          tz_offset
+      in
+      let ts =
+        Option.fold
+          ~none:Ptime.epoch
+          ~some:Fun.id (Ptime.of_float_s (Int64.to_float secs))
+      in
+      Ok ts
 
   let digest t key =
     let open Lwt.Infix in
