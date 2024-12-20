@@ -474,8 +474,8 @@ module Make (Pclock : Mirage_clock.PCLOCK) = struct
     | None, Some head ->
       (* See https://github.com/ocaml/ocaml/issues/9301 why we have the
          intermediate [r] value. *)
-      let+ r = Store.read_exn t.store head in
-      let[@warning "-8"] Commit c = r in
+      Store.read_exn t.store head >|= fun r ->
+      let[@warning "-8"] Git.Value.Commit c = r in
       let author = Git_commit.author c in
       let secs, tz_offset = author.Git.User.date in
       let secs =
