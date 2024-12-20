@@ -1,3 +1,9 @@
+# v0.1.2 2024-12-20 - Vig (Denmark)
+
+- example app/mgit.exe: initialize the RNG and add an mtime repl command (!9 - @reynir, review by @hannesm)
+- **BUG FIX**: make `last_modified` return the commit date when on a clean commit.
+  This restores the behavior before v0.1.0 (!10 - @reynir, review by @hannesm, @dinosaure)
+
 # v0.1.1 2024-11-28 - Vig (Denmark)
 
 - Remove unused code from test setup (!4 - @hannesm)
