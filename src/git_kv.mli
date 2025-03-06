@@ -30,8 +30,14 @@
     the more changes you make out of sync with the remote repository (without
     pushing them), the bigger the state serialization will be. *)
 
-type t
-(** The type of the Git store. *)
+include
+  Mirage_kv.RW
+    with type write_error =
+      [ `Msg of string
+      | `Hash_not_found of Digestif.SHA1.t
+      | `Reference_not_found of Git.Reference.t
+      | Mirage_kv.write_error ]
+     and type error = [ `Msg of string | Mirage_kv.error ]
 
 val connect : Mimic.ctx -> string -> t Lwt.t
 (** [connect ctx remote] creates a new Git store which synchronises
@@ -43,7 +49,8 @@ val connect : Mimic.ctx -> string -> t Lwt.t
 val branch : t -> Git.Reference.t
 (** [branch t] returns the branch used by the given [t]. *)
 
-val commit : t -> [ `Clean of Digestif.SHA1.t | `Dirty of Digestif.SHA1.t ] option
+val commit :
+  t -> [ `Clean of Digestif.SHA1.t | `Dirty of Digestif.SHA1.t ] option
 (** [commit t] returns the commit used by the given [t]. The commit is either
     marked [`Dirty _] if we're inside a [change_and_push] or [`Clean _]
     otherwise. *)
@@ -53,35 +60,34 @@ val to_octets : ?level:int -> t -> string Lwt_stream.t
     [level] is the {i zlib} level compression used for Git object (between [0]
     and [9] including), defaults to [4]. *)
 
-val of_octets : Mimic.ctx -> remote:string -> string Lwt_stream.t ->
-  (t, [> `Msg of string]) result Lwt.t
+val of_octets :
+     Mimic.ctx
+  -> remote:string
+  -> string Lwt_stream.t
+  -> (t, [> `Msg of string ]) result Lwt.t
 (** [of_octets ctx ~remote contents] tries to re-create a {!type:t} from its
     serialized version [contents]. This function does not do I/O and the
-    returned {!type:t} can be out of sync with the given [remote]. We advise
-    to call {!val:pull} to be in-sync with [remote]. *)
+    returned {!type:t} can be out of sync with the given [remote]. We advise to
+    call {!val:pull} to be in-sync with [remote]. *)
 
-type change = [ `Add of Mirage_kv.Key.t
-              | `Remove of Mirage_kv.Key.t
-              | `Change of Mirage_kv.Key.t ]
+type change =
+  [ `Add of Mirage_kv.Key.t
+  | `Remove of Mirage_kv.Key.t
+  | `Change of Mirage_kv.Key.t ]
 
 val pull : t -> (change list, [> `Msg of string ]) result Lwt.t
 (** [pull store] tries to synchronise the remote Git repository with your local
     [store] Git repository. It returns a list of changes between the old state
     of your store and what you have remotely. *)
 
-module Make (Pclock : Mirage_clock.PCLOCK) : sig
-  include Mirage_kv.RW
-    with type t = t
-     and type write_error = [ `Msg of string
-                            | `Hash_not_found of Digestif.SHA1.t
-                            | `Reference_not_found of Git.Reference.t
-                            | Mirage_kv.write_error ]
-     and type error = [ `Msg of string | Mirage_kv.error ]
-
-  val change_and_push : t -> ?author:string -> ?author_email:string ->
-    ?message:string -> (t -> 'a Lwt.t) -> ('a, [> `Msg of string ]) result Lwt.t
-  (** [change_and_push store ~author ~author_email ~message f] applies the
-      changes of [f] to [store], and creates a commit using [author],
-      [author_email], and [message] (committer will be the same as author), and
-      pushes that commit to the remote. *)
-end
+val change_and_push :
+     t
+  -> ?author:string
+  -> ?author_email:string
+  -> ?message:string
+  -> (t -> 'a Lwt.t)
+  -> ('a, [> `Msg of string ]) result Lwt.t
+(** [change_and_push store ~author ~author_email ~message f] applies the changes
+    of [f] to [store], and creates a commit using [author], [author_email], and
+    [message] (committer will be the same as author), and pushes that commit to
+    the remote. *)
