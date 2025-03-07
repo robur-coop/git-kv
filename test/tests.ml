@@ -29,7 +29,9 @@ let empty_repo () =
   let pid = Result.get_ok (Bos.OS.File.read (Fpath.v "pid")) in
   Ok (Fpath.basename tmpdir, String.trim pid)
 
-let kill_git pid = Unix.kill (int_of_string pid) Sys.sigterm
+let kill_git pid =
+  try Unix.kill (int_of_string pid) Sys.sigterm
+  with Unix.Unix_error _ -> Printf.eprintf "Error killing git\n"
 
 open Lwt.Infix
 
