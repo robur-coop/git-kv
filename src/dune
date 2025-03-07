@@ -1,4 +1,4 @@
 (library
-  (name git_kv)
-  (public_name git-kv)
-  (libraries git ptime mirage-clock mirage-kv fmt))
+ (name git_kv)
+ (public_name git-kv)
+ (libraries git ptime mirage-ptime mirage-kv fmt))

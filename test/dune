@@ -1,4 +1,8 @@
-(env (_ (binaries (../app/mgit.exe as mgit))))
+(env
+ (_
+  (binaries
+   (../app/mgit.exe as mgit))))
+
 (cram
  (package git-kv)
  (applies_to simple)
@@ -19,5 +23,5 @@
 
 (test
  (name tests)
- (libraries git-kv alcotest bos mirage-clock-unix lwt.unix git-unix)
+ (libraries git-kv alcotest bos lwt.unix git-unix)
  (modules tests))
