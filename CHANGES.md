@@ -1,3 +1,7 @@
+# v0.1.3 2025-03-10 - Berlin (Germany)
+
+- Defunctorise: remove functor over PCLOCK, use mirage-ptime instead of mirage-clock (!12 @hannesm, review by @reynir)
+
 # v0.1.2 2024-12-20 - Vig (Denmark)
 
 - example app/mgit.exe: initialize the RNG and add an mtime repl command (!9 - @reynir, review by @hannesm)
