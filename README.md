@@ -50,18 +50,16 @@ change to the repository requires a new commit. These changes will be sent to
 the remote repository. The user can _fold_ any changes into one commit if
 he/she wants.
 ```ocaml
-module Store = Git_kv.Make (Pclock)
-
 let new_file t =
-  Store.set t Mirage_kv.Key.(empty / "foo") "foo" >>= fun () ->
+  Git_kv.set t Mirage_kv.Key.(empty / "foo") "foo" >>= fun () ->
   (* XXX(dinosaure): a commit was created and sended to the
      remote repository. *)
   ...
 
 let new_files t =
-  Store.change_and_push t @@ fun t ->
-  Store.set t Mirage_kv.Key.(empty / "foo" "foo") >>= fun () ->
-  Store.set t Mirage_kv.Key.(empty / "bar" "bar")
+  Git_kv.change_and_push t @@ fun t ->
+  Git_kv.set t Mirage_kv.Key.(empty / "foo" "foo") >>= fun () ->
+  Git_kv.set t Mirage_kv.Key.(empty / "bar" "bar")
 (* XXX(dinosaure): multiple files are added into the local repository
    but they are committed only at the end of the given function
    to [change_and_push]. That's say, only one commit was made and sended to the
