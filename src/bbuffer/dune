@@ -1,0 +1,4 @@
+(library
+ (name bbuffer)
+ (public_name git-kv.bbuffer)
+ (libraries bstr))

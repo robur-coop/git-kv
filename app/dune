@@ -1,3 +1,11 @@
 (executable
  (name mgit)
- (libraries logs.fmt fmt.tty git-unix git-kv mirage-crypto-rng.unix))
+ (libraries
+  lwt.unix
+  hxd.string
+  hxd.core
+  logs.fmt
+  fmt.tty
+  git-kv
+  git-kv-net
+  mirage-crypto-rng.unix))

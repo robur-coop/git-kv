@@ -23,5 +23,5 @@
 
 (test
  (name tests)
- (libraries git-kv alcotest bos lwt.unix git-unix)
+ (libraries logs.fmt git-kv git-kv-net alcotest bos lwt.unix)
  (modules tests))

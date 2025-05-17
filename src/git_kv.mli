@@ -35,7 +35,7 @@ include
     with type write_error =
       [ `Msg of string
       | `Hash_not_found of Digestif.SHA1.t
-      | `Reference_not_found of Git.Reference.t
+      | `Reference_not_found of Git_store.Reference.t
       | Mirage_kv.write_error ]
      and type error = [ `Msg of string | Mirage_kv.error ]
 
@@ -46,7 +46,7 @@ val connect : Mimic.ctx -> string -> t Lwt.t
     @raise [Invalid_argument _] if we can not initialize the store, or if
     we can not fetch the given [remote]. *)
 
-val branch : t -> Git.Reference.t
+val branch : t -> Git_store.Reference.t
 (** [branch t] returns the branch used by the given [t]. *)
 
 val commit :
@@ -61,10 +61,10 @@ val to_octets : ?level:int -> t -> string Lwt_stream.t
     and [9] including), defaults to [4]. *)
 
 val of_octets :
-     Mimic.ctx
-  -> remote:string
-  -> string Lwt_stream.t
-  -> (t, [> `Msg of string ]) result Lwt.t
+  Mimic.ctx ->
+  remote:string ->
+  string Lwt_stream.t ->
+  (t, [> `Msg of string ]) result Lwt.t
 (** [of_octets ctx ~remote contents] tries to re-create a {!type:t} from its
     serialized version [contents]. This function does not do I/O and the
     returned {!type:t} can be out of sync with the given [remote]. We advise to
@@ -81,12 +81,12 @@ val pull : t -> (change list, [> `Msg of string ]) result Lwt.t
     of your store and what you have remotely. *)
 
 val change_and_push :
-     t
-  -> ?author:string
-  -> ?author_email:string
-  -> ?message:string
-  -> (t -> 'a Lwt.t)
-  -> ('a, [> `Msg of string ]) result Lwt.t
+  t ->
+  ?author:string ->
+  ?author_email:string ->
+  ?message:string ->
+  (t -> 'a Lwt.t) ->
+  ('a, [> `Msg of string ]) result Lwt.t
 (** [change_and_push store ~author ~author_email ~message f] applies the changes
     of [f] to [store], and creates a commit using [author], [author_email], and
     [message] (committer will be the same as author), and pushes that commit to
