@@ -12,6 +12,7 @@ depends: [
   "dune"              {>= "2.9.0"}
   "git-kv"            {= version}
   "h1"
+  "paf"
   "uri"
   "awa-mirage"
   "mimic"
