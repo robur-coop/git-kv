@@ -38,3 +38,9 @@ build: [
   ["dune" "runtest" "-p" name "-j" jobs] {with-test}
 ]
 x-maintenance-intent: [ "(latest)" ]
+
+pin-depends: [
+  [ "carton.dev" "git+https://github.com/robur-coop/carton.git#f98fa095c3ebe4b6d7e43b9cc9f620f06dd0431b" ]
+  [ "carton-lwt.dev" "git+https://github.com/robur-coop/carton.git#f98fa095c3ebe4b6d7e43b9cc9f620f06dd0431b" ]
+  [ "carton-git-lwt.dev" "git+https://github.com/robur-coop/carton.git#f98fa095c3ebe4b6d7e43b9cc9f620f06dd0431b" ]
+]
