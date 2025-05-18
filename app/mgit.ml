@@ -174,7 +174,7 @@ let repl store fd_in =
 let run remote = function
   | None ->
     Lwt_main.run
-    @@ ( Git_net.ctx (Happy_eyeballs_lwt.create ()) >>= fun ctx ->
+    @@ ( Git_net_unix.ctx (Happy_eyeballs_lwt.create ()) >>= fun ctx ->
          Git_kv.connect ctx remote >>= fun t -> repl t Unix.stdin )
   | Some filename ->
     let contents =
@@ -184,7 +184,7 @@ let run remote = function
       really_input ic bs 0 ln; Bytes.unsafe_to_string bs
     in
     Lwt_main.run
-      ( Git_net.ctx (Happy_eyeballs_lwt.create ()) >>= fun ctx ->
+      ( Git_net_unix.ctx (Happy_eyeballs_lwt.create ()) >>= fun ctx ->
         let stream = Lwt_stream.of_list [contents] in
         Git_kv.of_octets ctx ~remote stream >>= function
         | Ok t -> repl t Unix.stdin

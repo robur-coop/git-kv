@@ -10,19 +10,26 @@ synopsis: "A Mirage_kv implementation using git"
 depends: [
   "ocaml"             {>= "4.08.0"}
   "dune"              {>= "2.9.0"}
-  "git"               {>= "3.10.0"}
-  "mirage-kv"         {>= "6.0.0"}
-  "carton"            {>= "0.7.0"}
-  "carton-lwt"        {>= "0.7.0"}
-  "fmt"               {>= "0.8.7"}
-  "mirage-ptime"      {>= "5.0.0"}
+  "ke"
+  "fmt"
+  "lwt"
+  "hxd"
+  "psq"
+  "bstr"
+  "logs"
+  "mimic"
+  "emile"
+  "fpath"
+  "base64"
+  "carton"
+  "carton-git-lwt"
+  "rresult"
+  "astring"
+  "encore"
+  "digestif"
   "ptime"
-  "hxd"               {with-test}
-  "conf-git"          {with-test}
-  "mirage-crypto-rng" {>= "1.2.0" & with-test}
-  "git-unix"          {>= "3.10.0" & with-test}
-  "alcotest"          {>= "1.8.0" & with-test}
-  "bos"               {>= "0.2.1" & with-test}
+  "mirage-kv"         {>= "6.0.0"}
+  "mirage-ptime"
 ]
 
 build: [

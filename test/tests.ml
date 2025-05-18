@@ -64,7 +64,7 @@ let read_in_change_and_push () =
       ~finally:(fun () -> kill_git pid)
       (fun () ->
         Lwt_main.run
-          ( Git_net.ctx (Happy_eyeballs_lwt.create ()) >>= fun ctx ->
+          ( Git_net_unix.ctx (Happy_eyeballs_lwt.create ()) >>= fun ctx ->
             Git_kv.connect ctx ("git://localhost:9419/" ^ tmpdir) >>= fun t ->
             Git_kv.change_and_push t (fun t ->
                 Git_kv.set t (Mirage_kv.Key.v "/foo") "value" >>= fun r ->
@@ -91,7 +91,7 @@ let set_outside_change_and_push () =
       ~finally:(fun () -> kill_git pid)
       (fun () ->
         Lwt_main.run
-          ( Git_net.ctx (Happy_eyeballs_lwt.create ()) >>= fun ctx ->
+          ( Git_net_unix.ctx (Happy_eyeballs_lwt.create ()) >>= fun ctx ->
             Git_kv.connect ctx ("git://localhost:9419/" ^ tmpdir) >>= fun t ->
             Git_kv.change_and_push t (fun t' ->
                 Git_kv.set t' (Mirage_kv.Key.v "/foo") "value" >>= fun r ->
@@ -122,7 +122,7 @@ let remove_in_change_and_push () =
       ~finally:(fun () -> kill_git pid)
       (fun () ->
         Lwt_main.run
-          ( Git_net.ctx (Happy_eyeballs_lwt.create ()) >>= fun ctx ->
+          ( Git_net_unix.ctx (Happy_eyeballs_lwt.create ()) >>= fun ctx ->
             Git_kv.connect ctx ("git://localhost:9419/" ^ tmpdir) >>= fun t ->
             Git_kv.set t (Mirage_kv.Key.v "/foo") "value" >>= fun r ->
             if Result.is_error r then Alcotest.fail "failure writing";
@@ -155,7 +155,7 @@ let last_modified_in_change_and_push () =
       ~finally:(fun () -> kill_git pid)
       (fun () ->
         Lwt_main.run
-          ( Git_net.ctx (Happy_eyeballs_lwt.create ()) >>= fun ctx ->
+          ( Git_net_unix.ctx (Happy_eyeballs_lwt.create ()) >>= fun ctx ->
             Git_kv.connect ctx ("git://localhost:9419/" ^ tmpdir) >>= fun t ->
             Git_kv.set t (Mirage_kv.Key.v "/foo") "value" >>= fun r ->
             if Result.is_error r then Alcotest.fail "failure writing";
@@ -206,7 +206,7 @@ let digest_in_change_and_push () =
       ~finally:(fun () -> kill_git pid)
       (fun () ->
         Lwt_main.run
-          ( Git_net.ctx (Happy_eyeballs_lwt.create ()) >>= fun ctx ->
+          ( Git_net_unix.ctx (Happy_eyeballs_lwt.create ()) >>= fun ctx ->
             Git_kv.connect ctx ("git://localhost:9419/" ^ tmpdir) >>= fun t ->
             Git_kv.set t (Mirage_kv.Key.v "/foo") "value" >>= fun r ->
             if Result.is_error r then Alcotest.fail "failure writing";
@@ -246,7 +246,7 @@ let multiple_change_and_push () =
       ~finally:(fun () -> kill_git pid)
       (fun () ->
         Lwt_main.run
-          ( Git_net.ctx (Happy_eyeballs_lwt.create ()) >>= fun ctx ->
+          ( Git_net_unix.ctx (Happy_eyeballs_lwt.create ()) >>= fun ctx ->
             Git_kv.connect ctx ("git://localhost:9419/" ^ tmpdir) >>= fun t ->
             let wait = Lwt_mvar.create_empty () in
             let task_c () =

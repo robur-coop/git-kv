@@ -7,5 +7,5 @@
   logs.fmt
   fmt.tty
   git-kv
-  git-kv-net
+  git-net.unix
   mirage-crypto-rng.unix))
