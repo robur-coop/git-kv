@@ -26,4 +26,4 @@ build: [
   ["dune" "build" "-p" name "-j" jobs]
   ["dune" "runtest" "-p" name "-j" jobs] {with-test}
 ]
-x-maintengnce-intent: [ "(latest)" ]
+x-maintenance-intent: [ "(latest)" ]
