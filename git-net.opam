@@ -8,9 +8,9 @@ bug-reports: "https://github.com/robur-coop/git-kv/issues"
 synopsis: "A Mirage_kv implementation using git"
 
 depends: [
-  "ocaml"             {>= "4.08.0"}
-  "dune"              {>= "2.9.0"}
-  "git-kv"            {= version}
+  "ocaml" {>= "4.08.0"}
+  "dune" {>= "2.9.0"}
+  "git-kv" {= version}
   "h1"
   "paf"
   "uri"
@@ -19,6 +19,7 @@ depends: [
   "tcpip"
   "mimic-happy-eyeballs"
   "happy-eyeballs-lwt"
+  "alcotest" {with-test}
 ]
 
 build: [

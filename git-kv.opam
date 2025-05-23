@@ -8,8 +8,8 @@ bug-reports: "https://github.com/robur-coop/git-kv/issues"
 synopsis: "A Mirage_kv implementation using git"
 
 depends: [
-  "ocaml"             {>= "4.08.0"}
-  "dune"              {>= "2.9.0"}
+  "ocaml" {>= "4.08.0"}
+  "dune" {>= "2.9.0"}
   "ke"
   "fmt"
   "lwt"
@@ -28,8 +28,9 @@ depends: [
   "encore"
   "digestif"
   "ptime"
-  "mirage-kv"         {>= "6.0.0"}
+  "mirage-kv" {>= "6.0.0"}
   "mirage-ptime"
+  "alcotest" {with-test}
 ]
 
 build: [
