@@ -1,0 +1,13 @@
+(library
+ (name git_sync)
+ (public_name git-kv.sync)
+ (libraries
+  hxd.core
+  hxd.string
+  psq
+  ke
+  rresult
+  git-kv.bbuffer
+  git-kv.mem
+  carton-git-lwt
+  mimic))

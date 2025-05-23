@@ -1,0 +1,13 @@
+(library
+ (name git_net)
+ (public_name git-net)
+ (modules git_net git_ssh git_tcp git_http git_paf)
+ (libraries paf rresult h1 uri awa-mirage mimic tcpip mimic-happy-eyeballs git-kv.mem))
+
+(library
+ (name git_net_unix)
+ (modules git_net_unix)
+ (public_name git-net.unix)
+ (libraries 
+  git-net
+  happy-eyeballs-lwt))

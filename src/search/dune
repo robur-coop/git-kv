@@ -1,0 +1,4 @@
+(library
+ (name git_search)
+ (public_name git-kv.search)
+ (libraries git-kv.mem))

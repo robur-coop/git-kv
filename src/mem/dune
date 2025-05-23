@@ -1,0 +1,18 @@
+(library
+ (name git_store)
+ (public_name git-kv.mem)
+ (libraries
+  uri
+  rresult
+  mimic
+  base64
+  emile
+  logs
+  digestif
+  bstr
+  fmt
+  lwt
+  carton
+  encore
+  astring
+  fpath))

@@ -4,24 +4,25 @@
    (../app/mgit.exe as mgit))))
 
 (cram
- (package git-kv)
+ (package git-net)
  (applies_to simple)
  (locks p9418)
  (deps %{bin:mgit}))
 
 (cram
- (package git-kv)
+ (package git-net)
  (applies_to fold)
  (locks p9418)
  (deps %{bin:mgit}))
 
 (cram
- (package git-kv)
+ (package git-net)
  (applies_to fold2)
  (locks p9418)
  (deps %{bin:mgit}))
 
 (test
  (name tests)
- (libraries git-kv alcotest bos lwt.unix git-unix)
+ (package git-net)
+ (libraries logs.fmt git-kv git-net.unix alcotest bos lwt.unix)
  (modules tests))

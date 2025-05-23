@@ -1,4 +1,19 @@
 (library
  (name git_kv)
  (public_name git-kv)
- (libraries git ptime mirage-ptime mirage-kv fmt))
+ (libraries
+  git-kv.mem
+  git-kv.sync
+  git-kv.search
+  mimic
+  emile
+  fpath
+  base64
+  carton
+  astring
+  encore
+  digestif
+  ptime
+  mirage-ptime
+  mirage-kv
+  fmt))
