@@ -273,8 +273,7 @@ let analyze store stream =
   in
   Array.iter fn entries;
   match !head with
-  | Some hash as head ->
-      Git_store.shallow store hash >|= fun () -> head
+  | Some hash as head -> Git_store.shallow store hash >|= fun () -> head
   | None -> Lwt.return_none
 
 let of_octets ctx ~remote data =
