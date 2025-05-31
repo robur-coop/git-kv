@@ -51,7 +51,7 @@ let empty_repo () =
   in
   let* () = run_it cmd in
   let res = Bos.OS.File.read (Fpath.v "pid") in
-  Result.iter_error (fun (`Msg msg) -> Fmt.failwith "read: %s" msg) res in
+  Result.iter_error (fun (`Msg msg) -> Fmt.failwith "read: %s" msg) res;
   let pid = Result.get_ok res in
   Ok (Fpath.basename tmpdir, String.trim pid)
 
