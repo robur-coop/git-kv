@@ -50,7 +50,9 @@ let empty_repo () =
       % "--enable=receive-pack")
   in
   let* () = run_it cmd in
-  let pid = Result.get_ok (Bos.OS.File.read (Fpath.v "pid")) in
+  let res = Bos.OS.File.read (Fpath.v "pid") in
+  Result.iter_error (fun (`Msg msg) -> Fmt.failwith "read: %s" msg) res in
+  let pid = Result.get_ok res in
   Ok (Fpath.basename tmpdir, String.trim pid)
 
 let kill_git pid = try Unix.kill (int_of_string pid) Sys.sigterm with _ -> ()
