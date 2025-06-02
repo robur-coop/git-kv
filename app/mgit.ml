@@ -1,6 +1,6 @@
 let () = Printexc.record_backtrace true
 
-let reporter ppf =
+let _reporter ppf =
   let report src level ~over k msgf =
     let k _ = over (); k () in
     let with_metadata header _tags k ppf fmt =

@@ -140,7 +140,7 @@ struct
         }
       | Error of [ `Git_paf of Git_paf.error ]
 
-    type flow = {happy_eyeballs: Happy_eyeballs.t; mutable state: state}
+    type flow = state ref
     type error = [ `Msg of string ]
     type write_error = [ `Closed | `Msg of string ]
 
@@ -151,7 +151,7 @@ struct
       | `Msg err -> Fmt.string ppf err
 
     let write t cs =
-      match t.state with
+      match !t with
       | Handshake | Get _ ->
         Lwt.return_error (`Msg "Handshake has not been done")
       | Error (`Git_paf e) ->
@@ -174,14 +174,14 @@ struct
       go css
 
     let read t =
-      match t.state with
+      match !t with
       | Handshake -> Lwt.return_error (`Msg "Handshake has not been done")
       | Error (`Git_paf e) ->
         Lwt.return_error
           (`Msg
              (Fmt.str "Handshake got an error: git-paf: %a" Git_paf.pp_error e))
       | Get {advertised_refs; uri; headers; ctx} ->
-        t.state <- Post {output= ""; uri; headers; ctx};
+        t := Post {output= ""; uri; headers; ctx};
         Lwt.return_ok (`Data (Cstruct.of_string advertised_refs))
       | Post {output; uri; headers; ctx} -> (
         Git_paf.post ~ctx ~headers uri output >>= function
@@ -195,8 +195,7 @@ struct
 
     type endpoint = Happy_eyeballs.t
 
-    let connect happy_eyeballs =
-      Lwt.return_ok {happy_eyeballs; state= Handshake}
+    let connect _happy_eyeballs = Lwt.return_ok {contents= Handshake}
   end
 
   let http_endpoint, http_protocol = Mimic.register ~name:"http" (module HTTP)
@@ -231,10 +230,10 @@ struct
             let ctx = context git_mirage_http_tls_config ctx in
             Git_paf.get ~ctx ~headers uri0 >>= function
             | Ok (_resp, advertised_refs) ->
-              flow.state <- HTTP.Get {advertised_refs; uri= uri1; headers; ctx};
+              flow := HTTP.Get {advertised_refs; uri= uri1; headers; ctx};
               Lwt.return_unit
             | Error e ->
-              flow.state <- Error (`Git_paf e);
+              flow := Error (`Git_paf e);
               Lwt.return_unit)
           | _ -> Lwt.return_unit
         in

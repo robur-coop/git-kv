@@ -1,3 +1,3 @@
-(lang dune 2.9)
+(lang dune 3.19)
 (name git-kv)
 (cram enable)
