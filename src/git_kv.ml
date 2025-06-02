@@ -590,9 +590,8 @@ let remove ?and_commit t key =
       Git_store.Ref.write t.store t.branch (Git_store.Reference.uid hash)
       >>= fun () ->
       Lwt.Infix.(
-        (* Git_sync.push ~capabilities ~ctx:t.ctx t.edn t.store
-          [`Update (t.branch, t.branch)] *)
-        assert false
+        Git_sync.push ~capabilities ~ctx:t.ctx t.edn t.store
+          [`Update (t.branch, t.branch)]
         >|= Result.map_error (fun err ->
                 `Msg
                   (Fmt.str "error pushing branch %a: %a" Git_store.Reference.pp
@@ -637,9 +636,8 @@ let remove ?and_commit t key =
           >>= fun () ->
           (* TODO(dinosaure): better way to wrap monads! *)
           Lwt.Infix.(
-            (* Git_sync.push ~capabilities ~ctx:t.ctx t.edn t.store
-              [`Update (t.branch, t.branch)] *)
-            assert false
+            Git_sync.push ~capabilities ~ctx:t.ctx t.edn t.store
+              [`Update (t.branch, t.branch)]
             >|= Result.map_error (fun err ->
                     `Msg
                       (Fmt.str "error pushing branch %a: %a"
