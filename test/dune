@@ -7,22 +7,42 @@
  (package git-net)
  (applies_to simple)
  (locks p9418)
+ (enabled_if
+  (or
+   (<> %{system} "fedora")
+   (<> %{system} "alpine")
+   (<> %{system} "opensuse")))
  (deps %{bin:mgit}))
 
 (cram
  (package git-net)
  (applies_to fold)
  (locks p9418)
+ (enabled_if
+  (or
+   (<> %{system} "fedora")
+   (<> %{system} "alpine")
+   (<> %{system} "opensuse")))
  (deps %{bin:mgit}))
 
 (cram
  (package git-net)
  (applies_to fold2)
  (locks p9418)
+ (enabled_if
+  (or
+   (<> %{system} "fedora")
+   (<> %{system} "alpine")
+   (<> %{system} "opensuse")))
  (deps %{bin:mgit}))
 
 (test
  (name tests)
  (package git-net)
  (libraries logs.fmt git-kv git-net.unix alcotest bos lwt.unix)
+ (enabled_if
+  (or
+   (<> %{system} "fedora")
+   (<> %{system} "alpine")
+   (<> %{system} "opensuse")))
  (modules tests))
