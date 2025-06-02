@@ -1,6 +1,7 @@
 open Lwt.Infix
 
 let ( >>? ) = Lwt_result.bind
+let open_error_msg = function Ok _ as v -> v | Error (`Msg _) as v -> v
 
 module Happy_eyeballs = struct
   type t = Happy_eyeballs_lwt.t
@@ -19,7 +20,7 @@ module Happy_eyeballs = struct
       ports =
     Happy_eyeballs_lwt.connect ?aaaa_timeout ?connect_delay ?connect_timeout
       ?resolve_timeout ?resolve_retries t addr ports
-    >|= Rresult.R.open_error_msg
+    >|= open_error_msg
 end
 
 module TCP = struct

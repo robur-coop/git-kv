@@ -76,7 +76,7 @@ let append p0 p1 =
 
 let ( / ) p seg = add_seg p seg
 let ( // ) p0 p1 = append p0 p1
-let segs p = Astring.String.cuts ~sep:dir_sep p
+let segs p = String.split_on_char dir_sep.[0] p
 let pp ppf p = Fmt.string ppf p
 let to_string x = x
 let equal p0 p1 = String.equal p0 p1
@@ -124,21 +124,21 @@ module Packed = struct
     let rec go acc =
       let* line = input_line fd in
       match line with
+      | Some "" -> go acc
       | Some line -> begin
-        match Astring.String.head line with
-        | None -> go acc
-        | Some '#' -> go acc
-        | Some '^' ->
+        match line.[0] with
+        | '#' -> go acc
+        | '^' ->
           let uid = String.sub line 1 (String.length line - 1) in
           let uid = of_hex uid in
           go (Peeled uid :: acc)
-        | Some _ -> (
-          match Astring.String.cut ~sep:" " line with
-          | Some (uid, reference) ->
-            let reference = v reference in
+        | _ -> (
+          match String.split_on_char ' ' line with
+          | [] | [_] -> go acc
+          | uid :: reference ->
+            let reference = v (String.concat " " reference) in
             let uid = of_hex uid in
-            go (Ref (reference, uid) :: acc)
-          | None -> go acc)
+            go (Ref (reference, uid) :: acc))
       end
       | None -> Lwt.return (List.rev acc)
     in
@@ -191,9 +191,8 @@ let contents _store str =
   match SHA1.of_hex_opt (String.trim str) with
   | Some uid -> Uid uid
   | None -> begin
-    let is_sep chr = Astring.Char.Ascii.is_white chr || chr = ':' in
-    match Astring.String.fields ~empty:false ~is_sep str with
-    | [_ref; value] -> Ref (v value)
+    match String.split_on_char ' ' str with
+    | _ref :: value -> Ref (v (String.concat " " value))
     | _ -> Fmt.invalid_arg "Invalid reference contents: %S" str
   end
 

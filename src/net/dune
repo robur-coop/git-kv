@@ -4,7 +4,6 @@
  (modules git_net git_ssh git_tcp git_http git_paf)
  (libraries
   paf
-  rresult
   h1
   uri
   awa-mirage

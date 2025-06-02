@@ -1,9 +1,7 @@
-open Lwt.Infix
-
 let ( >>? ) = Lwt_result.bind
 
 module Flow = struct
-  open Rresult
+  open Lwt.Infix
 
   let blit0 src src_off dst dst_off len =
     let dst = Cstruct.of_bigarray ~off:dst_off ~len dst in
@@ -28,7 +26,7 @@ module Flow = struct
 
   let recv flow payload =
     if Ke.Rke.is_empty flow.queue then begin
-      Mimic.read flow.flow >|= R.reword_error (fun err -> `Error err)
+      Mimic.read flow.flow >|= Result.map_error (fun err -> `Error err)
       >>? function
       | `Eof -> Lwt.return_ok `End_of_flow
       | `Data res ->
@@ -48,9 +46,9 @@ module Flow = struct
 
   let send flow payload =
     Mimic.write flow.flow payload >|= function
-    | Error `Closed -> R.error (`Write_error `Closed)
-    | Error err -> R.error (`Write_error err)
-    | Ok () -> R.ok (Cstruct.length payload)
+    | Error `Closed -> Error (`Write_error `Closed)
+    | Error err -> Error (`Write_error err)
+    | Ok () -> Ok (Cstruct.length payload)
 end
 
 let src = Logs.Src.create "smart.flow"

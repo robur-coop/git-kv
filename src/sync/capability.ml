@@ -81,18 +81,18 @@ let of_string ?value = function
     | Some value -> `Agent value
     | None -> raise (Capability_expect_value "agent"))
   | "symref" -> (
-    match Option.bind value (Astring.String.cut ~sep:":") with
-    | Some (ref0, ref1) -> `Symref (ref0, ref1)
-    | None -> raise (Capability_expect_value "symref"))
+    match Option.map (String.split_on_char ':') value with
+    | Some (ref0 :: ref1) -> `Symref (ref0, String.concat ":" ref1)
+    | _ -> raise (Capability_expect_value "symref"))
   | capability -> (
     match value with
     | Some value -> `Parameter (capability, value)
     | None -> (
-      match Astring.String.cut ~sep:"=" capability with
-      | Some ("push-cert", v) -> `Push_cert v
-      | Some ("agent", v) -> `Agent v
-      | Some (k, v) -> `Parameter (k, v)
-      | None -> `Other capability))
+      match String.split_on_char '=' capability with
+      | "push-cert" :: v -> `Push_cert (String.concat "=" v)
+      | "agent" :: v -> `Agent (String.concat "=" v)
+      | k :: v -> `Parameter (k, String.concat "=" v)
+      | [] -> `Other capability))
 
 let pp ppf = function
   | `Multi_ack -> Fmt.pf ppf "Multi-ACK"

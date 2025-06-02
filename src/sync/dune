@@ -6,7 +6,6 @@
   hxd.string
   psq
   ke
-  rresult
   git-kv.bbuffer
   git-kv.mem
   carton-git-lwt

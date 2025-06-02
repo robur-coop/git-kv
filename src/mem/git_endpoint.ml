@@ -31,6 +31,9 @@ type t = {
   hostname: string;
 }
 
+let error_msgf fmt = Fmt.kstr (fun msg -> Error (`Msg msg)) fmt
+let msgf fmt = Fmt.kstr (fun msg -> `Msg msg) fmt
+
 let pp ppf edn =
   match edn with
   | {scheme= `SSH user; path; hostname; _} ->
@@ -60,16 +63,17 @@ let headers_from_uri uri =
   | _ -> []
 
 let of_string str =
-  let open Rresult in
+  let ( >>= ) = Result.bind in
   let parse_ssh str =
     let len = String.length str in
     Emile.of_string_raw ~off:0 ~len str
-    |> R.reword_error (R.msgf "%a" Emile.pp_error)
+    |> Result.map_error (msgf "%a" Emile.pp_error)
     >>= fun (consumed, m) ->
     match
-      Astring.String.cut ~sep:":" (String.sub str consumed (len - consumed))
+      String.split_on_char ':' (String.sub str consumed (len - consumed))
     with
-    | Some ("", path) ->
+    | "" :: path ->
+      let path = String.concat ":" path in
       let local =
         List.map
           (function `Atom x -> x | `String x -> Fmt.str "%S" x)
@@ -84,28 +88,27 @@ let of_string str =
         | `Addr (Emile.IPv6 v) -> Ipaddr.V6.to_string v
         | `Addr (Emile.Ext (k, v)) -> Fmt.str "%s:%s" k v
       in
-      R.ok {scheme= `SSH user; path; port= None; hostname}
-    | _ -> R.error_msg "Invalid SSH pattern"
+      Ok {scheme= `SSH user; path; port= None; hostname}
+    | _ -> Error (`Msg "Invalid SSH pattern")
   in
   let parse_uri str =
     let uri = Uri.of_string str in
     let path = Uri.path uri in
     match Uri.scheme uri, Uri.host uri, Uri.port uri with
-    | Some "git", Some hostname, port ->
-      R.ok {scheme= `Git; path; port; hostname}
+    | Some "git", Some hostname, port -> Ok {scheme= `Git; path; port; hostname}
     | Some "http", Some hostname, port ->
-      R.ok {scheme= `HTTP (headers_from_uri uri); path; port; hostname}
+      Ok {scheme= `HTTP (headers_from_uri uri); path; port; hostname}
     | Some "https", Some hostname, port ->
-      R.ok {scheme= `HTTPS (headers_from_uri uri); path; port; hostname}
+      Ok {scheme= `HTTPS (headers_from_uri uri); path; port; hostname}
     | Some scheme, Some hostname, port ->
-      R.ok {scheme= `Scheme scheme; path; port; hostname}
-    | _ -> R.error_msgf "Invalid uri: %a" Uri.pp uri
+      Ok {scheme= `Scheme scheme; path; port; hostname}
+    | _ -> error_msgf "Invalid uri: %a" Uri.pp uri
   in
   match parse_ssh str, parse_uri str with
   | Ok v, _ -> Ok v
   | _, Ok v -> Ok v
   | Error _, Error _ ->
-    R.error_msgf
+    error_msgf
       "Invalid endpoint: %s\n\
        The format of it corresponds to:\n\
        1) a SSH endpoint like: user@hostname:repository\n\

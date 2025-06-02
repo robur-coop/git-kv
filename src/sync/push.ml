@@ -1,5 +1,3 @@
-open Rresult
-
 type configuration = {stateless: bool}
 
 let configuration ?(stateless = false) () = {stateless}
@@ -71,10 +69,10 @@ let push
           >|= Smart.Status.map ~fn:Git_store.Reference.v
         else if uses_git_transport then
           Smart_flow.run flow Smart.(recv ctx recv_flush) >>= fun () ->
-          let cmds = List.map R.ok (Smart.Commands.commands cmds) in
+          let cmds = List.map Result.ok (Smart.Commands.commands cmds) in
           Lwt.return (Smart.Status.v cmds)
         else
-          let cmds = List.map R.ok (Smart.Commands.commands cmds) in
+          let cmds = List.map Result.ok (Smart.Commands.commands cmds) in
           Lwt.return (Smart.Status.v cmds)
       | Some payload ->
         Smart_flow.run flow Smart.(send ctx pack payload) >>= fun () -> go ()

@@ -23,7 +23,6 @@ depends: [
   "base64"
   "carton"
   "carton-git-lwt"
-  "rresult"
   "astring"
   "encore"
   "digestif"

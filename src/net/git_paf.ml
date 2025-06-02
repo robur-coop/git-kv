@@ -182,7 +182,7 @@ let get ~ctx ?(headers = []) uri : (_, error) result Lwt.t =
   let headers = H1.Headers.of_list headers in
   let f uri =
     let edn = Git_store.Endpoint.of_string (Uri.to_string uri) in
-    let edn = Rresult.R.get_ok edn in
+    let edn = Result.get_ok edn in
     let ctx = Git_store.Endpoint.to_ctx edn ctx in
     http_get ~ctx ~headers uri
   in
@@ -195,7 +195,7 @@ let post ~ctx ?(headers = []) uri body : (_, error) result Lwt.t =
   let headers = H1.Headers.of_list headers in
   let f uri =
     let edn = Git_store.Endpoint.of_string (Uri.to_string uri) in
-    let edn = Rresult.R.get_ok edn in
+    let edn = Result.get_ok edn in
     let ctx = Git_store.Endpoint.to_ctx edn ctx in
     http_post ~ctx ~headers ~chunked:false ~body uri
   in
