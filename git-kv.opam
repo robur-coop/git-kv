@@ -11,7 +11,7 @@ depends: [
   "ocaml" {>= "4.08.0"}
   "dune" {>= "2.9.0"}
   "ke"
-  "fmt"
+  "fmt" {>= "0.10.0"}
   "lwt"
   "hxd"
   "psq"
@@ -20,8 +20,8 @@ depends: [
   "mimic"
   "emile"
   "fpath"
-  "base64"
-  "carton"
+  "base64" {>= "3.5.0"}
+  "carton" {>= "1.0.0"}
   "carton-git-lwt"
   "astring"
   "encore"

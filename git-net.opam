@@ -12,9 +12,9 @@ depends: [
   "dune" {>= "2.9.0"}
   "git-kv" {= version}
   "h1"
-  "paf"
+  "paf" {>= "0.8.0"}
   "uri"
-  "awa-mirage"
+  "awa-mirage" {>= "0.5.2"}
   "mimic"
   "tcpip"
   "mimic-happy-eyeballs"
