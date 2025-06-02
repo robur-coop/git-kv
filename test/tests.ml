@@ -49,6 +49,7 @@ let empty_repo () =
       % "--export-all"
       % "--enable=receive-pack")
   in
+  let* () = Bos.OS.File.delete (Fpath.v "pid") in
   let* () = run_it cmd in
   let pid =
     let rec go () =
