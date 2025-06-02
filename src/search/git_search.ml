@@ -28,7 +28,7 @@ end
 type pred =
   [ `Commit of SHA1.t
   | `Tag of string * SHA1.t
-  | `Tree of string * SHA1.t
+  | `Tree of string * SHA1.t * Git_store.Tree.perm
   | `Tree_root of SHA1.t ]
 
 let pred t ?(full = true) h =
@@ -48,7 +48,7 @@ let pred t ?(full = true) h =
     if full then
       let lst =
         List.map
-          (fun {Git_store.Tree.name; node; _} -> `Tree (name, node))
+          (fun {Git_store.Tree.name; node; perm} -> `Tree (name, node, perm))
           (Git_store.Tree.to_list t)
       in
       Lwt.return lst
@@ -65,7 +65,7 @@ let find_list f l =
 let find_tree_root :
     [ `Commit of SHA1.t
     | `Tag of string * SHA1.t
-    | `Tree of string * SHA1.t
+    | `Tree of string * SHA1.t * Git_store.Tree.perm
     | `Tree_root of SHA1.t ]
     list ->
     SHA1.t option =
@@ -78,7 +78,10 @@ let find_tag l =
 
 let find_tree l =
   find_list (function
-    | `Tree (s, x) -> if s = l then Some x else None
+    | `Tree (_, _, `Link) ->
+      (* Ignore symbolic links for now *)
+      None
+    | `Tree (s, x, _perm) -> if s = l then Some x else None
     | _ -> None)
 
 let rec find t hash path =

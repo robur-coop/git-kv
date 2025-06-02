@@ -368,12 +368,13 @@ let list t key =
     match Git_store.read_exn t.store tree with
     | Tree t ->
       let r =
-        List.map
+        List.filter_map
           (fun {Git_store.Tree.perm; name; _} ->
-            ( Mirage_kv.Key.add key name,
-              match perm with
-              | `Commit | `Dir -> `Dictionary
-              | `Everybody | `Exec | `Normal | `Link -> `Value ))
+             let path = Mirage_kv.Key.add key name in
+             match perm with
+             | `Commit | `Dir -> Some (path, `Dictionary)
+             | `Everybody | `Exec | `Normal -> Some (path, `Value)
+             | `Link -> None)
           (Git_store.Tree.to_list t)
       in
       Lwt.return (Ok r)
