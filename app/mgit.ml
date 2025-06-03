@@ -63,6 +63,24 @@ let set ~quiet store key str =
     if not quiet then Fmt.epr "%a.\n%!" Git_kv.pp_write_error err;
     Lwt.return (Ok 1)
 
+let set_partial ~quiet store key off str =
+  let value = value_of_string str in
+  match int_of_string_opt off with
+  | None ->
+    if not quiet then Fmt.epr "Bad offset %S.\n%!" off;
+    Lwt.return (Ok 1)
+  | Some off when off < 0 ->
+    if not quiet then Fmt.epr "Negative offset %d.\n%!" off;
+    Lwt.return (Ok 1)
+  | Some offset ->
+    let offset = Optint.Int63.of_int offset in
+    Git_kv.set_partial store key ~offset value >>= function
+    | Ok () -> Lwt.return (Ok 0)
+    | Error err ->
+      if not quiet then Fmt.epr "%a.\n%!" Git_kv.pp_write_error err;
+      Lwt.return (Ok 1)
+
+
 let remove ~quiet store key =
   Git_kv.remove store key >>= function
   | Ok () -> Lwt.return (Ok 0)
@@ -159,6 +177,10 @@ let repl store fd_in =
     | "set" :: key :: data ->
       let data = String.concat " " data in
       with_key ~f:(fun key -> set ~quiet:false store0 key data) key >|= ignore
+      >>= fun () -> go store0
+    | "set_partial" :: key :: off :: data ->
+      let data = String.concat " " data in
+      with_key ~f:(fun key -> set_partial ~quiet:false store0 key off data) key >|= ignore
       >>= fun () -> go store0
     | ["remove"; key] ->
       with_key ~f:(remove ~quiet:false store0) key >|= ignore >>= fun () ->
