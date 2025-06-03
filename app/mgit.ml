@@ -80,9 +80,15 @@ let set_partial ~quiet store key off str =
       if not quiet then Fmt.epr "%a.\n%!" Git_kv.pp_write_error err;
       Lwt.return (Ok 1)
 
-
 let remove ~quiet store key =
   Git_kv.remove store key >>= function
+  | Ok () -> Lwt.return (Ok 0)
+  | Error err ->
+    if not quiet then Fmt.epr "%a.\n%!" Git_kv.pp_write_error err;
+    Lwt.return (Ok 1)
+
+let rename ~quiet store key key' =
+  Git_kv.rename store ~source:key ~dest:key' >>= function
   | Ok () -> Lwt.return (Ok 0)
   | Error err ->
     if not quiet then Fmt.epr "%a.\n%!" Git_kv.pp_write_error err;
@@ -184,6 +190,14 @@ let repl store fd_in =
       >>= fun () -> go store0
     | ["remove"; key] ->
       with_key ~f:(remove ~quiet:false store0) key >|= ignore >>= fun () ->
+      go store0
+    | ["rename"; key; key'] ->
+      (match Mirage_kv.Key.v key, Mirage_kv.Key.v key with
+       | key, key' ->
+         rename ~quiet:false store0 key key'
+       | exception _ ->
+         Fmt.epr "Invalid key: %S or %S\n%!" key key';
+         Lwt.return (Ok 1)) >|= ignore >>= fun () ->
       go store0
     | ["list"; key] ->
       with_key ~f:(list ~quiet:false store0) key >|= ignore >>= fun () ->
