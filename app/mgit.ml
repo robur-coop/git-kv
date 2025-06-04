@@ -80,6 +80,21 @@ let set_partial ~quiet store key off str =
       if not quiet then Fmt.epr "%a.\n%!" Git_kv.pp_write_error err;
       Lwt.return (Ok 1)
 
+let allocate ?last_modified ~quiet store key size =
+  match Optint.Int63.of_string_opt size with
+  | None ->
+    if not quiet then Fmt.epr "Bad size %S.\n%!" size;
+    Lwt.return (Ok 1)
+  | Some size when Optint.Int63.compare size Optint.Int63.zero < 0 ->
+    if not quiet then Fmt.epr "Negative size %a.\n%!" Optint.Int63.pp size;
+    Lwt.return (Ok 1)
+  | Some size ->
+    Git_kv.allocate store key ?last_modified size >>= function
+    | Ok () -> Lwt.return (Ok 0)
+    | Error err ->
+      if not quiet then Fmt.epr "%a.\n%!" Git_kv.pp_write_error err;
+      Lwt.return (Ok 1)
+
 let remove ~quiet store key =
   Git_kv.remove store key >>= function
   | Ok () -> Lwt.return (Ok 0)
@@ -187,6 +202,9 @@ let repl store fd_in =
     | "set_partial" :: key :: off :: data ->
       let data = String.concat " " data in
       with_key ~f:(fun key -> set_partial ~quiet:false store0 key off data) key >|= ignore
+      >>= fun () -> go store0
+    | ["allocate"; key; sz] ->
+      with_key ~f:(fun key -> allocate ~quiet:false store0 key sz) key >|= ignore
       >>= fun () -> go store0
     | ["remove"; key] ->
       with_key ~f:(remove ~quiet:false store0) key >|= ignore >>= fun () ->
