@@ -96,3 +96,6 @@ val change_and_push :
 val get_with_permissions : t -> Mirage_kv.Key.t -> ([ `Normal | `Exec | `Everybody | `Link] * string, error) result Lwt.t
 (** [get_with_permissions t key] is similar to [get t key] with the file
     permissions. Unlike [get] symbolic links are {b not} ignored. *)
+
+val set_with_permissions : t -> Mirage_kv.Key.t -> [ `Normal | `Exec | `Everybody | `Link] * string -> (unit, write_error) result Lwt.t
+(** [set_with_permissions t key (perm, data)] is [set t key data] with [perm] git file permissions. *)

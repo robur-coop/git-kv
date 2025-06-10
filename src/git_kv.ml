@@ -525,7 +525,7 @@ let set_with_permissions ?and_commit t key (perm, contents) =
     Git_store.write t.store (Git_store.Object.Blob blob) |> Lwt.return
     >>= fun hash ->
     tree_root_hash_of_store t >>= fun tree_root_hash ->
-    unroll_tree t ~tree_root_hash (perm, name, hash) (List.tl rpath)
+    unroll_tree t ~tree_root_hash ((perm :> Git_store.Tree.perm), name, hash) (List.tl rpath)
     >>= fun tree_root_hash ->
     match and_commit with
     | Some _old_tree_root_hash ->
@@ -754,7 +754,7 @@ let rename t ~source ~dest =
   let op t =
     get_with_permissions t source >>= fun (perm, contents) ->
     remove t source >>= fun () ->
-    set_with_permissions t dest ((perm :> Git_store.Tree.perm), contents)
+    set_with_permissions t dest (perm, contents)
   in
   (* (hannes) we check whether we're in a change_and_push or not, since
        nested change_and_push are not supported. *)
