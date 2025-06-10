@@ -21,12 +21,28 @@ let () = Logs.set_reporter (reporter Fmt.stderr)
 let () = Logs.set_level ~all:true (Some Logs.Debug)
 *)
 
+let pp_perm ppf = function
+  | `Normal -> Fmt.pf ppf "normal file"
+  | `Exec -> Fmt.pf ppf "executable file"
+  | `Everybody -> Fmt.pf ppf "world-readable file"
+  | `Link -> Fmt.pf ppf "symbolic link"
+
 open Lwt.Infix
 
 let get ~quiet store key =
   Git_kv.get store key >>= function
   | Ok contents when not quiet ->
     Fmt.pr "@[<hov>%a@]\n%!" (Hxd_string.pp Hxd.default) contents;
+    Lwt.return (Ok 0)
+  | Ok _ -> Lwt.return (Ok 0)
+  | Error err ->
+    if not quiet then Fmt.epr "%a.\n%!" Git_kv.pp_error err;
+    Lwt.return (Ok 1)
+
+let get_with_permissions ~quiet store key =
+  Git_kv.get_with_permissions store key >>= function
+  | Ok (perm, contents) when not quiet ->
+    Fmt.pr "%a@ @[<hov>%a@]\n%!" pp_perm perm (Hxd_string.pp Hxd.default) contents;
     Lwt.return (Ok 0)
   | Ok _ -> Lwt.return (Ok 0)
   | Error err ->
@@ -191,6 +207,9 @@ let repl store fd_in =
     match String.split_on_char ' ' (input_line ic) |> trim with
     | ["get"; key] ->
       with_key ~f:(get ~quiet:false store0) key >|= ignore >>= fun () ->
+      go store0
+    | ["get-with-permissions"; key] ->
+      with_key ~f:(get_with_permissions ~quiet:false store0) key >|= ignore >>= fun () ->
       go store0
     | ["exists"; key] ->
       with_key ~f:(exists ~quiet:false store0) key >|= ignore >>= fun () ->

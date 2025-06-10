@@ -384,7 +384,6 @@ let list t key =
   find_blob t key >>= function
   | None -> Lwt.return (Error (`Not_found key))
   | Some (_perm, tree) -> begin
-    (* TODO: if [key] is a [`Link]?! *)
     match Git_store.read_exn t.store tree with
     | Tree t ->
       let r =
