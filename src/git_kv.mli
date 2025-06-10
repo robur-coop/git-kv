@@ -92,3 +92,7 @@ val change_and_push :
     of [f] to [store], and creates a commit using [author], [author_email], and
     [message] (committer will be the same as author), and pushes that commit to
     the remote. *)
+
+val get_with_permissions : t -> Mirage_kv.Key.t -> ([ `Normal | `Exec | `Everybody | `Link] * string, error) result Lwt.t
+(** [get_with_permissions t key] is similar to [get t key] with the file
+    permissions. Unlike [get] symbolic links are {b not} ignored. *)
