@@ -96,6 +96,24 @@ let set_partial ~quiet store key off str =
       if not quiet then Fmt.epr "%a.\n%!" Git_kv.pp_write_error err;
       Lwt.return (Ok 1)
 
+let set_with_permissions ~quiet store key perm str =
+  let perm =
+    match perm with
+    | "n" -> `Normal
+    | "x" -> `Exec
+    | "a" -> `Everybody
+    | "l" -> `Link
+    | _ ->
+      if not quiet then Fmt.epr "Unknown permission %S, assuming \"n\" (normal).\n%!" perm;
+      `Normal
+  in
+  let value = value_of_string str in
+  Git_kv.set_with_permissions store key (perm, value) >>= function
+  | Ok () -> Lwt.return (Ok 0)
+  | Error err ->
+    if not quiet then Fmt.epr "%a.\n%!" Git_kv.pp_write_error err;
+    Lwt.return (Ok 1)
+
 let allocate ?last_modified ~quiet store key size =
   match Optint.Int63.of_string_opt size with
   | None ->
@@ -221,6 +239,10 @@ let repl store fd_in =
     | "set_partial" :: key :: off :: data ->
       let data = String.concat " " data in
       with_key ~f:(fun key -> set_partial ~quiet:false store0 key off data) key >|= ignore
+      >>= fun () -> go store0
+    | "set-with-permissions" :: key :: perm :: data ->
+      let data = String.concat " " data in
+      with_key ~f:(fun key -> set_with_permissions ~quiet:false store0 key perm data) key >|= ignore
       >>= fun () -> go store0
     | ["allocate"; key; sz] ->
       with_key ~f:(fun key -> allocate ~quiet:false store0 key sz) key >|= ignore
