@@ -64,9 +64,9 @@ let find_tag l =
     | _ -> None)
 
 let find_tree l elts =
-  List.find_map (function
-    | `Tree (s, x, perm) -> if s = l then Some (x, perm) else None
-    | _ -> None)
+  List.find_map
+    (function
+      | `Tree (s, x, perm) -> if s = l then Some (x, perm) else None | _ -> None)
     elts
 
 let rec find t hash path =

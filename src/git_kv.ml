@@ -358,8 +358,11 @@ let get_with_permissions t key =
   let open Lwt.Infix in
   get_with_permissions t key >|= function
   | Ok ((`Commit | `Dir), _) -> assert false
-  | Ok ((`Normal | `Exec | `Everybody | `Link as perm : [> `Normal | `Exec | `Everybody | `Link]), data) ->
-    Ok ((perm :> [`Normal | `Exec | `Everybody | `Link]), data)
+  | Ok
+      ( ((`Normal | `Exec | `Everybody | `Link) as perm :
+          [> `Normal | `Exec | `Everybody | `Link ]),
+        data ) ->
+    Ok ((perm :> [ `Normal | `Exec | `Everybody | `Link ]), data)
   | Error _ as e -> e
 
 let get t key =
@@ -389,11 +392,11 @@ let list t key =
       let r =
         List.filter_map
           (fun {Git_store.Tree.perm; name; _} ->
-             let path = Mirage_kv.Key.add key name in
-             match perm with
-             | `Commit | `Dir -> Some (path, `Dictionary)
-             | `Everybody | `Exec | `Normal -> Some (path, `Value)
-             | `Link -> None)
+            let path = Mirage_kv.Key.add key name in
+            match perm with
+            | `Commit | `Dir -> Some (path, `Dictionary)
+            | `Everybody | `Exec | `Normal -> Some (path, `Value)
+            | `Link -> None)
           (Git_store.Tree.to_list t)
       in
       Lwt.return (Ok r)
@@ -437,8 +440,8 @@ let digest t key =
   >>= Option.fold
         ~none:(Lwt.return (Error (`Not_found key)))
         ~some:(function
-            | `Link, _ -> Lwt.return (Error (`Value_expected key))
-            | _, x -> Lwt.return (Ok (SHA1.to_raw_string x)))
+          | `Link, _ -> Lwt.return (Error (`Value_expected key))
+          | _, x -> Lwt.return (Ok (SHA1.to_raw_string x)))
 
 let size t key =
   let open Lwt_result.Infix in
@@ -524,7 +527,9 @@ let set_with_permissions ?and_commit t key (perm, contents) =
     Git_store.write t.store (Git_store.Object.Blob blob) |> Lwt.return
     >>= fun hash ->
     tree_root_hash_of_store t >>= fun tree_root_hash ->
-    unroll_tree t ~tree_root_hash ((perm :> Git_store.Tree.perm), name, hash) (List.tl rpath)
+    unroll_tree t ~tree_root_hash
+      ((perm :> Git_store.Tree.perm), name, hash)
+      (List.tl rpath)
     >>= fun tree_root_hash ->
     match and_commit with
     | Some _old_tree_root_hash ->
@@ -567,10 +572,10 @@ let to_write_error (error : Git_store.error) =
 
 let set_with_permissions t key v =
   let open Lwt.Infix in
-  set_with_permissions ?and_commit:t.committed t key v >|= Result.map_error to_write_error
+  set_with_permissions ?and_commit:t.committed t key v
+  >|= Result.map_error to_write_error
 
-let set t key contents =
-  set_with_permissions t key (`Normal, contents)
+let set t key contents = set_with_permissions t key (`Normal, contents)
 
 let set_partial t key ~offset chunk =
   let open Lwt_result.Infix in
@@ -752,8 +757,7 @@ let rename t ~source ~dest =
   let open Lwt_result.Infix in
   let op t =
     get_with_permissions t source >>= fun (perm, contents) ->
-    remove t source >>= fun () ->
-    set_with_permissions t dest (perm, contents)
+    remove t source >>= fun () -> set_with_permissions t dest (perm, contents)
   in
   (* (hannes) we check whether we're in a change_and_push or not, since
        nested change_and_push are not supported. *)

@@ -42,7 +42,9 @@ let get ~quiet store key =
 let get_with_permissions ~quiet store key =
   Git_kv.get_with_permissions store key >>= function
   | Ok (perm, contents) when not quiet ->
-    Fmt.pr "%a@ @[<hov>%a@]\n%!" pp_perm perm (Hxd_string.pp Hxd.default) contents;
+    Fmt.pr "%a@ @[<hov>%a@]\n%!" pp_perm perm
+      (Hxd_string.pp Hxd.default)
+      contents;
     Lwt.return (Ok 0)
   | Ok _ -> Lwt.return (Ok 0)
   | Error err ->
@@ -88,13 +90,13 @@ let set_partial ~quiet store key off str =
   | Some off when off < 0 ->
     if not quiet then Fmt.epr "Negative offset %d.\n%!" off;
     Lwt.return (Ok 1)
-  | Some offset ->
+  | Some offset -> (
     let offset = Optint.Int63.of_int offset in
     Git_kv.set_partial store key ~offset value >>= function
     | Ok () -> Lwt.return (Ok 0)
     | Error err ->
       if not quiet then Fmt.epr "%a.\n%!" Git_kv.pp_write_error err;
-      Lwt.return (Ok 1)
+      Lwt.return (Ok 1))
 
 let set_with_permissions ~quiet store key perm str =
   let perm =
@@ -104,7 +106,8 @@ let set_with_permissions ~quiet store key perm str =
     | "a" -> `Everybody
     | "l" -> `Link
     | _ ->
-      if not quiet then Fmt.epr "Unknown permission %S, assuming \"n\" (normal).\n%!" perm;
+      if not quiet then
+        Fmt.epr "Unknown permission %S, assuming \"n\" (normal).\n%!" perm;
       `Normal
   in
   let value = value_of_string str in
@@ -122,12 +125,12 @@ let allocate ?last_modified ~quiet store key size =
   | Some size when Optint.Int63.compare size Optint.Int63.zero < 0 ->
     if not quiet then Fmt.epr "Negative size %a.\n%!" Optint.Int63.pp size;
     Lwt.return (Ok 1)
-  | Some size ->
+  | Some size -> (
     Git_kv.allocate store key ?last_modified size >>= function
     | Ok () -> Lwt.return (Ok 0)
     | Error err ->
       if not quiet then Fmt.epr "%a.\n%!" Git_kv.pp_write_error err;
-      Lwt.return (Ok 1)
+      Lwt.return (Ok 1))
 
 let remove ~quiet store key =
   Git_kv.remove store key >>= function
@@ -227,8 +230,8 @@ let repl store fd_in =
       with_key ~f:(get ~quiet:false store0) key >|= ignore >>= fun () ->
       go store0
     | ["get-with-permissions"; key] ->
-      with_key ~f:(get_with_permissions ~quiet:false store0) key >|= ignore >>= fun () ->
-      go store0
+      with_key ~f:(get_with_permissions ~quiet:false store0) key >|= ignore
+      >>= fun () -> go store0
     | ["exists"; key] ->
       with_key ~f:(exists ~quiet:false store0) key >|= ignore >>= fun () ->
       go store0
@@ -238,26 +241,31 @@ let repl store fd_in =
       >>= fun () -> go store0
     | "set_partial" :: key :: off :: data ->
       let data = String.concat " " data in
-      with_key ~f:(fun key -> set_partial ~quiet:false store0 key off data) key >|= ignore
+      with_key ~f:(fun key -> set_partial ~quiet:false store0 key off data) key
+      >|= ignore
       >>= fun () -> go store0
     | "set-with-permissions" :: key :: perm :: data ->
       let data = String.concat " " data in
-      with_key ~f:(fun key -> set_with_permissions ~quiet:false store0 key perm data) key >|= ignore
+      with_key
+        ~f:(fun key -> set_with_permissions ~quiet:false store0 key perm data)
+        key
+      >|= ignore
       >>= fun () -> go store0
     | ["allocate"; key; sz] ->
-      with_key ~f:(fun key -> allocate ~quiet:false store0 key sz) key >|= ignore
+      with_key ~f:(fun key -> allocate ~quiet:false store0 key sz) key
+      >|= ignore
       >>= fun () -> go store0
     | ["remove"; key] ->
       with_key ~f:(remove ~quiet:false store0) key >|= ignore >>= fun () ->
       go store0
     | ["rename"; key; key'] ->
       (match Mirage_kv.Key.v key, Mirage_kv.Key.v key' with
-       | key, key' ->
-         rename ~quiet:false store0 key key'
-       | exception _ ->
-         Fmt.epr "Invalid key: %S or %S\n%!" key key';
-         Lwt.return (Ok 1)) >|= ignore >>= fun () ->
-      go store0
+      | key, key' -> rename ~quiet:false store0 key key'
+      | exception _ ->
+        Fmt.epr "Invalid key: %S or %S\n%!" key key';
+        Lwt.return (Ok 1))
+      >|= ignore
+      >>= fun () -> go store0
     | ["list"; key] ->
       with_key ~f:(list ~quiet:false store0) key >|= ignore >>= fun () ->
       go store0
@@ -265,11 +273,11 @@ let repl store fd_in =
       with_key ~f:(last_modified ~quiet:false store0) key >|= ignore
       >>= fun () -> go store0
     | ["digest"; key] ->
-      with_key ~f:(digest ~quiet:false store0) key >|= ignore
-      >>= fun () -> go store0
+      with_key ~f:(digest ~quiet:false store0) key >|= ignore >>= fun () ->
+      go store0
     | ["size"; key] ->
-      with_key ~f:(size ~quiet:false store0) key >|= ignore
-      >>= fun () -> go store0
+      with_key ~f:(size ~quiet:false store0) key >|= ignore >>= fun () ->
+      go store0
     | ["pull"] ->
       if is_a_tty then Fmt.pr "\n%!";
       pull ~quiet:false store0 >|= ignore >>= fun () -> go store0
