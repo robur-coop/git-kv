@@ -5,6 +5,7 @@
  (libraries
   paf
   h1
+  tls
   uri
   awa-mirage
   mimic

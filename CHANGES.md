@@ -1,3 +1,8 @@
+# v0.2.0 2025-06-17 - Paris (France)
+
+- Delete the `ocaml-git` dependency (@dinosaure, @hannesm, !13)
+- Be able to handle links (@reynir, !14)
+
 # v0.1.3 2025-03-10 - Berlin (Germany)
 
 - Defunctorise: remove functor over PCLOCK, use mirage-ptime instead of mirage-clock (!12 @hannesm, review by @reynir)

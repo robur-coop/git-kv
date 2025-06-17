@@ -10,7 +10,6 @@
   fpath
   base64
   carton
-  astring
   encore
   digestif
   ptime
