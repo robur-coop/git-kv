@@ -334,21 +334,40 @@ let exists t key =
   let open Lwt.Infix in
   find_blob t key >>= function
   | None -> Lwt.return (Ok None)
-  | Some tree_hash -> begin
+  | Some (`Link, _) ->
+    (* mirage-kv API only considers directories and values and doesn't allow
+       links. So we pretend links don't exist. *)
+    Lwt.return (Ok None)
+  | Some (_, tree_hash) -> begin
     match Git_store.read_exn t.store tree_hash with
     | Blob _ -> Lwt.return (Ok (Some `Value))
     | Tree _ | Commit _ | Tag _ -> Lwt.return (Ok (Some `Dictionary))
   end
 
-let get t key =
+let get_with_permissions t key =
   let open Lwt.Infix in
   find_blob t key >>= function
   | None -> Lwt.return (Error (`Not_found key))
-  | Some blob -> begin
+  | Some (perm, blob) -> begin
     match Git_store.read_exn t.store blob with
-    | Blob b -> Lwt.return_ok (Git_store.Blob.to_string b)
+    | Blob b -> Lwt.return_ok (perm, Git_store.Blob.to_string b)
     | _ -> Lwt.return_error (`Value_expected key)
   end
+
+let get_with_permissions t key =
+  let open Lwt.Infix in
+  get_with_permissions t key >|= function
+  | Ok ((`Commit | `Dir), _) -> assert false
+  | Ok ((`Normal | `Exec | `Everybody | `Link as perm : [> `Normal | `Exec | `Everybody | `Link]), data) ->
+    Ok ((perm :> [`Normal | `Exec | `Everybody | `Link]), data)
+  | Error _ as e -> e
+
+let get t key =
+  let open Lwt.Infix in
+  get_with_permissions t key >|= function
+  | Ok (`Link, _) -> Error (`Value_expected key)
+  | Ok (_, data) -> Ok data
+  | Error _ as e -> e
 
 let get_partial t key ~offset ~length =
   let open Lwt_result.Infix in
@@ -364,16 +383,17 @@ let list t key =
   let open Lwt.Infix in
   find_blob t key >>= function
   | None -> Lwt.return (Error (`Not_found key))
-  | Some tree -> begin
+  | Some (_perm, tree) -> begin
     match Git_store.read_exn t.store tree with
     | Tree t ->
       let r =
-        List.map
+        List.filter_map
           (fun {Git_store.Tree.perm; name; _} ->
-            ( Mirage_kv.Key.add key name,
-              match perm with
-              | `Commit | `Dir -> `Dictionary
-              | `Everybody | `Exec | `Normal | `Link -> `Value ))
+             let path = Mirage_kv.Key.add key name in
+             match perm with
+             | `Commit | `Dir -> Some (path, `Dictionary)
+             | `Everybody | `Exec | `Normal -> Some (path, `Value)
+             | `Link -> None)
           (Git_store.Tree.to_list t)
       in
       Lwt.return (Ok r)
@@ -416,7 +436,9 @@ let digest t key =
   find_blob t key
   >>= Option.fold
         ~none:(Lwt.return (Error (`Not_found key)))
-        ~some:(fun x -> Lwt.return (Ok (SHA1.to_raw_string x)))
+        ~some:(function
+            | `Link, _ -> Lwt.return (Error (`Value_expected key))
+            | _, x -> Lwt.return (Ok (SHA1.to_raw_string x)))
 
 let size t key =
   let open Lwt_result.Infix in
@@ -454,7 +476,7 @@ let rec unroll_tree t ~tree_root_hash (pred_perm, pred_name, pred_hash) rpath =
       in
       Git_store.write t.store (Git_store.Object.Tree tree) |> Lwt.return
       >>? fun hash -> unroll_tree t ~tree_root_hash (`Dir, name, hash) rest
-    | Some tree_hash -> begin
+    | Some (_perm, tree_hash) -> begin
       match Git_store.read_exn t.store tree_hash with
       | Git_store.Object.Tree tree ->
         let tree =
@@ -490,7 +512,7 @@ let tree_root_hash_of_store t =
 
 let ( >>? ) = Lwt_result.bind
 
-let set ?and_commit t key contents =
+let set_with_permissions ?and_commit t key (perm, contents) =
   let segs = Mirage_kv.Key.segments key in
   match segs with
   | [] -> assert false (* TODO *)
@@ -502,7 +524,7 @@ let set ?and_commit t key contents =
     Git_store.write t.store (Git_store.Object.Blob blob) |> Lwt.return
     >>= fun hash ->
     tree_root_hash_of_store t >>= fun tree_root_hash ->
-    unroll_tree t ~tree_root_hash (`Normal, name, hash) (List.tl rpath)
+    unroll_tree t ~tree_root_hash ((perm :> Git_store.Tree.perm), name, hash) (List.tl rpath)
     >>= fun tree_root_hash ->
     match and_commit with
     | Some _old_tree_root_hash ->
@@ -543,9 +565,12 @@ let to_write_error (error : Git_store.error) =
   | `Reference_not_found ref -> `Reference_not_found ref
   | `Msg err -> `Msg err
 
-let set t key contents =
+let set_with_permissions t key v =
   let open Lwt.Infix in
-  set ?and_commit:t.committed t key contents >|= Result.map_error to_write_error
+  set_with_permissions ?and_commit:t.committed t key v >|= Result.map_error to_write_error
+
+let set t key contents =
+  set_with_permissions t key (`Normal, contents)
 
 let set_partial t key ~offset chunk =
   let open Lwt_result.Infix in
@@ -610,7 +635,8 @@ let remove ?and_commit t key =
     in
     match res with
     | None -> Lwt.return_ok ()
-    | Some hash -> begin
+    | Some (_perm, hash) -> begin
+      (* TODO: do we check perm? *)
       match Git_store.read_exn t.store hash with
       | Git_store.Object.Tree tree -> (
         let tree = Git_store.Tree.remove ~name tree in
@@ -655,10 +681,11 @@ let remove t key =
 
 let allocate t key ?last_modified:_ size =
   let open Lwt.Infix in
-  exists t key >>= function
-  | Error _ as e -> Lwt.return e
-  | Ok (Some _) -> Lwt_result.fail (`Already_present key)
-  | Ok None ->
+  find_blob t key >>= function
+  | Some (_perm, _) ->
+    (* XXX: we return this for [`Link], too *)
+    Lwt_result.fail (`Already_present key)
+  | None ->
     let size = Optint.Int63.to_int size in
     if size < 0 then Lwt_result.fail (`Msg "size does not fit into integer")
     else
@@ -724,8 +751,9 @@ let change_and_push
 let rename t ~source ~dest =
   let open Lwt_result.Infix in
   let op t =
-    get t source >>= fun contents ->
-    remove t source >>= fun () -> set t dest contents
+    get_with_permissions t source >>= fun (perm, contents) ->
+    remove t source >>= fun () ->
+    set_with_permissions t dest (perm, contents)
   in
   (* (hannes) we check whether we're in a change_and_push or not, since
        nested change_and_push are not supported. *)

@@ -21,12 +21,28 @@ let () = Logs.set_reporter (reporter Fmt.stderr)
 let () = Logs.set_level ~all:true (Some Logs.Debug)
 *)
 
+let pp_perm ppf = function
+  | `Normal -> Fmt.pf ppf "normal file"
+  | `Exec -> Fmt.pf ppf "executable file"
+  | `Everybody -> Fmt.pf ppf "world-readable file"
+  | `Link -> Fmt.pf ppf "symbolic link"
+
 open Lwt.Infix
 
 let get ~quiet store key =
   Git_kv.get store key >>= function
   | Ok contents when not quiet ->
     Fmt.pr "@[<hov>%a@]\n%!" (Hxd_string.pp Hxd.default) contents;
+    Lwt.return (Ok 0)
+  | Ok _ -> Lwt.return (Ok 0)
+  | Error err ->
+    if not quiet then Fmt.epr "%a.\n%!" Git_kv.pp_error err;
+    Lwt.return (Ok 1)
+
+let get_with_permissions ~quiet store key =
+  Git_kv.get_with_permissions store key >>= function
+  | Ok (perm, contents) when not quiet ->
+    Fmt.pr "%a@ @[<hov>%a@]\n%!" pp_perm perm (Hxd_string.pp Hxd.default) contents;
     Lwt.return (Ok 0)
   | Ok _ -> Lwt.return (Ok 0)
   | Error err ->
@@ -63,8 +79,65 @@ let set ~quiet store key str =
     if not quiet then Fmt.epr "%a.\n%!" Git_kv.pp_write_error err;
     Lwt.return (Ok 1)
 
+let set_partial ~quiet store key off str =
+  let value = value_of_string str in
+  match int_of_string_opt off with
+  | None ->
+    if not quiet then Fmt.epr "Bad offset %S.\n%!" off;
+    Lwt.return (Ok 1)
+  | Some off when off < 0 ->
+    if not quiet then Fmt.epr "Negative offset %d.\n%!" off;
+    Lwt.return (Ok 1)
+  | Some offset ->
+    let offset = Optint.Int63.of_int offset in
+    Git_kv.set_partial store key ~offset value >>= function
+    | Ok () -> Lwt.return (Ok 0)
+    | Error err ->
+      if not quiet then Fmt.epr "%a.\n%!" Git_kv.pp_write_error err;
+      Lwt.return (Ok 1)
+
+let set_with_permissions ~quiet store key perm str =
+  let perm =
+    match perm with
+    | "n" -> `Normal
+    | "x" -> `Exec
+    | "a" -> `Everybody
+    | "l" -> `Link
+    | _ ->
+      if not quiet then Fmt.epr "Unknown permission %S, assuming \"n\" (normal).\n%!" perm;
+      `Normal
+  in
+  let value = value_of_string str in
+  Git_kv.set_with_permissions store key (perm, value) >>= function
+  | Ok () -> Lwt.return (Ok 0)
+  | Error err ->
+    if not quiet then Fmt.epr "%a.\n%!" Git_kv.pp_write_error err;
+    Lwt.return (Ok 1)
+
+let allocate ?last_modified ~quiet store key size =
+  match Optint.Int63.of_string_opt size with
+  | None ->
+    if not quiet then Fmt.epr "Bad size %S.\n%!" size;
+    Lwt.return (Ok 1)
+  | Some size when Optint.Int63.compare size Optint.Int63.zero < 0 ->
+    if not quiet then Fmt.epr "Negative size %a.\n%!" Optint.Int63.pp size;
+    Lwt.return (Ok 1)
+  | Some size ->
+    Git_kv.allocate store key ?last_modified size >>= function
+    | Ok () -> Lwt.return (Ok 0)
+    | Error err ->
+      if not quiet then Fmt.epr "%a.\n%!" Git_kv.pp_write_error err;
+      Lwt.return (Ok 1)
+
 let remove ~quiet store key =
   Git_kv.remove store key >>= function
+  | Ok () -> Lwt.return (Ok 0)
+  | Error err ->
+    if not quiet then Fmt.epr "%a.\n%!" Git_kv.pp_write_error err;
+    Lwt.return (Ok 1)
+
+let rename ~quiet store source dest =
+  Git_kv.rename store ~source ~dest >>= function
   | Ok () -> Lwt.return (Ok 0)
   | Error err ->
     if not quiet then Fmt.epr "%a.\n%!" Git_kv.pp_write_error err;
@@ -89,6 +162,24 @@ let last_modified ~quiet store key =
   Git_kv.last_modified store key >>= function
   | Ok time ->
     Fmt.pr "%a\n%!" Ptime.pp time;
+    Lwt.return (Ok 0)
+  | Error err ->
+    if not quiet then Fmt.epr "%a.\n%!" Git_kv.pp_error err;
+    Lwt.return (Ok 1)
+
+let digest ~quiet store key =
+  Git_kv.digest store key >>= function
+  | Ok digest ->
+    Fmt.pr "%s\n%!" (Base64.encode_string digest);
+    Lwt.return (Ok 0)
+  | Error err ->
+    if not quiet then Fmt.epr "%a.\n%!" Git_kv.pp_error err;
+    Lwt.return (Ok 1)
+
+let size ~quiet store key =
+  Git_kv.size store key >>= function
+  | Ok size ->
+    Fmt.pr "%a\n%!" Optint.Int63.pp size;
     Lwt.return (Ok 0)
   | Error err ->
     if not quiet then Fmt.epr "%a.\n%!" Git_kv.pp_error err;
@@ -135,6 +226,9 @@ let repl store fd_in =
     | ["get"; key] ->
       with_key ~f:(get ~quiet:false store0) key >|= ignore >>= fun () ->
       go store0
+    | ["get-with-permissions"; key] ->
+      with_key ~f:(get_with_permissions ~quiet:false store0) key >|= ignore >>= fun () ->
+      go store0
     | ["exists"; key] ->
       with_key ~f:(exists ~quiet:false store0) key >|= ignore >>= fun () ->
       go store0
@@ -142,14 +236,39 @@ let repl store fd_in =
       let data = String.concat " " data in
       with_key ~f:(fun key -> set ~quiet:false store0 key data) key >|= ignore
       >>= fun () -> go store0
+    | "set_partial" :: key :: off :: data ->
+      let data = String.concat " " data in
+      with_key ~f:(fun key -> set_partial ~quiet:false store0 key off data) key >|= ignore
+      >>= fun () -> go store0
+    | "set-with-permissions" :: key :: perm :: data ->
+      let data = String.concat " " data in
+      with_key ~f:(fun key -> set_with_permissions ~quiet:false store0 key perm data) key >|= ignore
+      >>= fun () -> go store0
+    | ["allocate"; key; sz] ->
+      with_key ~f:(fun key -> allocate ~quiet:false store0 key sz) key >|= ignore
+      >>= fun () -> go store0
     | ["remove"; key] ->
       with_key ~f:(remove ~quiet:false store0) key >|= ignore >>= fun () ->
+      go store0
+    | ["rename"; key; key'] ->
+      (match Mirage_kv.Key.v key, Mirage_kv.Key.v key' with
+       | key, key' ->
+         rename ~quiet:false store0 key key'
+       | exception _ ->
+         Fmt.epr "Invalid key: %S or %S\n%!" key key';
+         Lwt.return (Ok 1)) >|= ignore >>= fun () ->
       go store0
     | ["list"; key] ->
       with_key ~f:(list ~quiet:false store0) key >|= ignore >>= fun () ->
       go store0
     | ["mtime"; key] ->
       with_key ~f:(last_modified ~quiet:false store0) key >|= ignore
+      >>= fun () -> go store0
+    | ["digest"; key] ->
+      with_key ~f:(digest ~quiet:false store0) key >|= ignore
+      >>= fun () -> go store0
+    | ["size"; key] ->
+      with_key ~f:(size ~quiet:false store0) key >|= ignore
       >>= fun () -> go store0
     | ["pull"] ->
       if is_a_tty then Fmt.pr "\n%!";
