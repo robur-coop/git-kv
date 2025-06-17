@@ -2,6 +2,7 @@ Reading during batch operation
   $ mkdir simple
   $ git init --bare -q simple 2> /dev/null
   $ git daemon --base-path=. --export-all --enable=receive-pack --reuseaddr --pid-file=pid --detach
+  $ touch git-daemon-export-ok
   $ mgit git://localhost/simple#main << EOF
   > fold
   > set /bar "Git rocks!"

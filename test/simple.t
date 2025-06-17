@@ -13,6 +13,7 @@ Simple test of our Git Key-Value store
   $ git commit --date "$DATE" -q -m .
   $ cd ..
   $ git daemon --base-path=. --export-all --reuseaddr --pid-file=pid --detach
+  $ touch git-daemon-export-ok
   $ mgit git://localhost/simple <<EOF
   > get /foo
   > save db.pack

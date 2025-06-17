@@ -60,9 +60,14 @@ let empty_repo () =
     go ()
   in
   let* () =
+    let lsof = Bos.Cmd.(v "lsof" % "-Pn" % "-i:9419") in
+    let wc = Bos.Cmd.(v "wc" % "-l") in
     let rec go () =
-      match Bos.OS.Cmd.run_status Bos.Cmd.(v "lsof" % "-i:9419") with
-      | Ok (`Exited 1) -> Ok ()
+      let lsof_out = Bos.OS.Cmd.run_out lsof in
+      let* lsof_in = Bos.OS.Cmd.out_run_in lsof_out in
+      let wc_out = Bos.OS.Cmd.run_io wc lsof_in in
+      match Bos.OS.Cmd.out_string ~trim:true wc_out with
+      | Ok (n, (_, `Exited 0)) when int_of_string n > 1 -> Ok ()
       | Ok _ -> go ()
       | Error _ as err -> err
     in

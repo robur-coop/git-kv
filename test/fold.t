@@ -4,6 +4,7 @@ Batch operation
   $ git init --bare -q 2> /dev/null
   $ cd ..
   $ git daemon --base-path=. --export-all --enable=receive-pack --reuseaddr --pid-file=pid --detach
+  $ touch git-daemon-export-ok
   $ mgit git://localhost/simple#main <<EOF
   > fold
   > set /bar "Git rocks!"
