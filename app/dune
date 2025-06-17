@@ -1,5 +1,7 @@
 (executable
  (name mgit)
+ (public_name mgit)
+ (package git-net)
  (libraries
   lwt.unix
   hxd.string

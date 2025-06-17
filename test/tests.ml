@@ -59,6 +59,15 @@ let empty_repo () =
     in
     go ()
   in
+  let* () =
+    let rec go () =
+      match Bos.OS.Cmd.run_status Bos.Cmd.(v "lsof" % "-i:9419") with
+      | Ok (`Exited 1) -> Ok ()
+      | Ok _ -> go ()
+      | Error _ as err -> err
+    in
+    go ()
+  in
   Ok (Fpath.basename tmpdir, String.trim pid)
 
 let kill_git pid = try Unix.kill (int_of_string pid) Sys.sigterm with _ -> ()
