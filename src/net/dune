@@ -5,6 +5,9 @@
  (libraries
   paf
   h1
+  tls
+  tls-mirage
+  ca-certs-nss
   uri
   awa-mirage
   mimic
