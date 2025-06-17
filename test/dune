@@ -8,7 +8,7 @@
  (applies_to simple)
  (locks p9418)
  (enabled_if
-  (or
+  (and
    (<> %{system} "fedora")
    (<> %{system} "alpine")
    (<> %{system} "opensuse")))
@@ -19,7 +19,7 @@
  (applies_to fold)
  (locks p9418)
  (enabled_if
-  (or
+  (and
    (<> %{system} "fedora")
    (<> %{system} "alpine")
    (<> %{system} "opensuse")))
@@ -30,7 +30,7 @@
  (applies_to fold2)
  (locks p9418)
  (enabled_if
-  (or
+  (and
    (<> %{system} "fedora")
    (<> %{system} "alpine")
    (<> %{system} "opensuse")))
@@ -41,7 +41,7 @@
  (package git-net)
  (libraries logs.fmt git-kv git-net.unix alcotest bos lwt.unix)
  (enabled_if
-  (or
+  (and
    (<> %{system} "fedora")
    (<> %{system} "alpine")
    (<> %{system} "opensuse")))
