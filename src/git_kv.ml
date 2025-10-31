@@ -7,7 +7,7 @@ type t = {
   edn: Git_store.Endpoint.t;
   branch: Git_store.Reference.t;
   store: Git_store.t;
-  mutable committed: Digestif.SHA1.t option;
+  mutable committed: (Ptime.t option * Digestif.SHA1.t) option;
   mutex: Lwt_mutex.t;
   mutable head: Digestif.SHA1.t option;
 }
@@ -324,7 +324,7 @@ let now () = Int64.of_float (Ptime.to_float_s (Mirage_ptime.now ()))
 let find_blob t key =
   match t.committed, t.head with
   | None, None -> Lwt.return None
-  | Some tree_root_hash, _ ->
+  | Some (_, tree_root_hash), _ ->
     Git_search.find t.store tree_root_hash (`Path (Mirage_kv.Key.segments key))
   | None, Some commit ->
     Git_search.find t.store commit
@@ -406,7 +406,8 @@ let list t key =
 let last_modified t key =
   match t.committed, t.head with
   | None, None -> Lwt.return (Error (`Not_found key))
-  | Some _, _ ->
+  | Some (Some ts, _), _ -> Lwt.return_ok ts
+  | Some (None, _), _ ->
     Lwt.return_ok
       (Option.fold ~none:Ptime.epoch ~some:Fun.id
          (Ptime.of_float_s (Int64.to_float (now ()))))
@@ -496,16 +497,30 @@ let rec unroll_tree t ~tree_root_hash (pred_perm, pred_name, pred_hash) rpath =
 
 let tree_root_hash_of_store t =
   match t.committed, t.head with
-  | Some tree_root_hash, _ -> Lwt.return_ok tree_root_hash
+  | Some (ts, tree_root_hash), _ -> Lwt.return_ok (ts, tree_root_hash)
   | None, None ->
     let open Lwt_result.Infix in
     let tree = Git_store.Tree.v [] in
     Git_store.write t.store (Git_store.Object.Tree tree) |> Lwt.return
-    >>= fun hash -> Lwt.return_ok hash
+    >>= fun hash -> Lwt.return_ok (None, hash)
   | None, Some commit -> begin
     match Git_store.read_exn t.store commit with
     | Git_store.Object.Commit commit ->
-      Lwt.return_ok (Git_store.Commit.tree commit)
+      let author = Git_store.Commit.author commit in
+      let secs, tz_offset = author.Git_store.User.date in
+      let secs =
+        Option.fold ~none:secs
+          ~some:(fun {Git_store.User.sign; hours; minutes} ->
+            let tz_off =
+              Int64.(mul (add (mul (of_int hours) 60L) (of_int minutes)) 60L)
+            in
+            match sign with
+            | `Plus -> Int64.(sub secs tz_off)
+            | `Minus -> Int64.(add secs tz_off))
+          tz_offset
+      in
+      let ts = Ptime.of_float_s (Int64.to_float secs) in
+      Lwt.return_ok (ts, Git_store.Commit.tree commit)
     | _ ->
       Lwt.return_error
         (`Msg
@@ -526,14 +541,14 @@ let set_with_permissions ?and_commit t key (perm, contents) =
     let open Lwt_result.Infix in
     Git_store.write t.store (Git_store.Object.Blob blob) |> Lwt.return
     >>= fun hash ->
-    tree_root_hash_of_store t >>= fun tree_root_hash ->
+    tree_root_hash_of_store t >>= fun (_, tree_root_hash) ->
     unroll_tree t ~tree_root_hash
       ((perm :> Git_store.Tree.perm), name, hash)
       (List.tl rpath)
     >>= fun tree_root_hash ->
     match and_commit with
     | Some _old_tree_root_hash ->
-      t.committed <- Some tree_root_hash;
+      t.committed <- Some (None, tree_root_hash);
       Lwt.return_ok ()
     | None ->
       let committer = author now in
@@ -596,7 +611,7 @@ let remove ?and_commit t key =
   | [] -> assert false
   | name :: [] -> (
     let open Lwt_result.Infix in
-    tree_root_hash_of_store t >>= fun tree_root_hash ->
+    tree_root_hash_of_store t >>= fun (_, tree_root_hash) ->
     let tree_root = Git_store.read_exn t.store tree_root_hash in
     let[@warning "-8"] (Git_store.Object.Tree tree_root) = tree_root in
     let tree_root = Git_store.Tree.remove ~name tree_root in
@@ -605,7 +620,7 @@ let remove ?and_commit t key =
     >>= fun tree_root_hash ->
     match and_commit with
     | Some _old_tree_root_hash ->
-      t.committed <- Some tree_root_hash;
+      t.committed <- Some (None, tree_root_hash);
       Lwt.return_ok ()
     | None ->
       let committer = author now in
@@ -632,7 +647,7 @@ let remove ?and_commit t key =
       Lwt.return_ok ())
   | name :: pred_name :: rest -> (
     let open Lwt_result.Infix in
-    tree_root_hash_of_store t >>= fun tree_root_hash ->
+    tree_root_hash_of_store t >>= fun (_, tree_root_hash) ->
     let ( let* ) = Lwt.bind in
     let* res =
       Git_search.find t.store tree_root_hash
@@ -651,7 +666,7 @@ let remove ?and_commit t key =
         >>= fun tree_root_hash ->
         match and_commit with
         | Some _old_tree_root_hash ->
-          t.committed <- Some tree_root_hash;
+          t.committed <- Some (None, tree_root_hash);
           Lwt.return_ok ()
         | None ->
           let committer = author now in
@@ -705,14 +720,16 @@ let change_and_push
   | None ->
     Lwt_mutex.with_lock t.mutex (fun () ->
         (let open Lwt_result.Infix in
-         tree_root_hash_of_store t >>= fun tree_root_hash ->
-         let t' = {t with committed= Some tree_root_hash} in
+         tree_root_hash_of_store t >>= fun (ts, tree_root_hash) ->
+         Log.debug (fun m -> m "Start to perform some Git operations with %a (%a)"
+           SHA1.pp tree_root_hash Fmt.(Dump.option (Ptime.pp_human ~frac_s:12 ())) ts);
+         let t' = {t with committed= Some (ts, tree_root_hash) } in
          let ( let* ) = Lwt.bind in
          let* res = f t' in
          (* XXX(dinosaure): we assume that only [change_and_push] can reset [t.committed] to [None] and
               we ensured that [change_and_push] can not be called into [f]. So we are sure that [t'.committed]
               must be [Some _] in anyway. *)
-         let[@warning "-8"] (Some new_tree_root_hash) = t'.committed in
+         let[@warning "-8"] (Some (_, new_tree_root_hash)) = t'.committed in
          if Digestif.SHA1.equal new_tree_root_hash tree_root_hash then
            Lwt.return_ok res (* XXX(dinosaure): nothing to send! *)
          else if not (Option.equal Digestif.SHA1.equal t.head t'.head) then
