@@ -34,4 +34,4 @@ build: [
                & os-distribution != "opensuse"}
 ]
 x-maintenance-intent: [ "(latest)" ]
-x-ci-accept-failure: [ "alpine-3.21" "fedora-41" "fedora-42" "opensuse-15.6" "opensuse-tumbleweed" ]
+x-ci-accept-failures: [ "alpine-3.21" "fedora-41" "fedora-42" "opensuse-15.6" "opensuse-tumbleweed" ]
