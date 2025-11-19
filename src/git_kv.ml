@@ -547,8 +547,8 @@ let set_with_permissions ?and_commit t key (perm, contents) =
       (List.tl rpath)
     >>= fun tree_root_hash ->
     match and_commit with
-    | Some _old_tree_root_hash ->
-      t.committed <- Some (None, tree_root_hash);
+    | Some (ts, _old_tree_root_hash) ->
+      t.committed <- Some (ts, tree_root_hash);
       Lwt.return_ok ()
     | None ->
       let committer = author now in
@@ -619,8 +619,8 @@ let remove ?and_commit t key =
     Git_store.write t.store (Git_store.Object.Tree tree_root) |> Lwt.return
     >>= fun tree_root_hash ->
     match and_commit with
-    | Some _old_tree_root_hash ->
-      t.committed <- Some (None, tree_root_hash);
+    | Some (ts, _old_tree_root_hash) ->
+      t.committed <- Some (ts, tree_root_hash);
       Lwt.return_ok ()
     | None ->
       let committer = author now in
@@ -665,8 +665,8 @@ let remove ?and_commit t key =
         unroll_tree t ~tree_root_hash (`Dir, pred_name, pred_hash) rest
         >>= fun tree_root_hash ->
         match and_commit with
-        | Some _old_tree_root_hash ->
-          t.committed <- Some (None, tree_root_hash);
+        | Some (ts, _old_tree_root_hash) ->
+          t.committed <- Some (ts, tree_root_hash);
           Lwt.return_ok ()
         | None ->
           let committer = author now in
