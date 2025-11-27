@@ -64,8 +64,7 @@ struct
       in
       Happy_eyeballs.resolve happy_eyeballs hostname [port] >>= function
       | Ok ((_ipaddr, _port), flow) -> client_of_flow cfg ?host:peer_name flow
-      | Error (`Msg _) -> assert false
-    (* TODO *)
+      | Error (`Msg err) -> Lwt.return_error (`Write (`Connect err))
   end
 
   let tls_endpoint, _tls_protocol = Mimic.register ~name:"tls" (module TLS)
