@@ -1,3 +1,9 @@
+# v0.2.1 2026-01-26 - Paris (France)
+
+- Align dev-repo on our OPAM file (@hannesm, 910339a)
+- Fix how we process time for files (@dinosaure, @reynir, #17)
+- A better error when we fails to fetch/push with our HTTP implementation (@reynir, #18)
+
 # v0.2.0 2025-06-17 - Paris (France)
 
 - Delete the `ocaml-git` dependency (@dinosaure, @hannesm, !13)
