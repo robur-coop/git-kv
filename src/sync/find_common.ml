@@ -102,8 +102,8 @@ let find_common
              (uid :: others)))
     >>= fun () ->
     (match deepen with
-    | None -> Lwt.return ()
-    | Some _ -> handle_shallow flow store ctx)
+      | None -> Lwt.return ()
+      | Some _ -> handle_shallow flow store ctx)
     >>= fun () ->
     let in_vain = ref 0 in
     let count = ref 0 in

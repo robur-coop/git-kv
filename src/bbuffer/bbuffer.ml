@@ -27,11 +27,11 @@ let resize b more =
   while old_pos + more > !new_len do
     new_len := 2 * !new_len
   done;
-  if !new_len > Sys.max_string_length then begin
-    if old_pos + more <= Sys.max_string_length then
+  if !new_len > Sys.max_string_length then
+    begin if old_pos + more <= Sys.max_string_length then
       new_len := Sys.max_string_length
     else failwith "Buffer.add: cannot grow buffer"
-  end;
+    end;
   let new_buffer = Bstr.create !new_len in
   (* PR#6148: let's keep using [blit] rather than [unsafe_blit] in
      this tricky function that is slow anyway. *)

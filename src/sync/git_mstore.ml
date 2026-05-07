@@ -9,17 +9,17 @@ let get_commit_for_negotiation (t, mem) hash =
   Log.debug (fun m -> m "Load commit %a." SHA1.pp hash);
   match Hashtbl.find mem hash with
   | v -> Lwt.return_some v
-  | exception Not_found -> begin
+  | exception Not_found ->
     (* XXX(dinosaure): given hash can not exist into [t],
      * in this call we try to see if remote hashes are available
      * locally. *)
-    match Git_store.read t hash with
+    begin match Git_store.read t hash with
     | Ok (Git_store.Object.Commit commit) ->
       let {Git_store.User.date= ts, _; _} = Git_store.Commit.committer commit in
       let v = hash, ref 0, ts in
       Hashtbl.add mem hash v; Lwt.return_some v
     | Ok _ | Error _ -> Lwt.return_none
-  end
+    end
 
 let get = get_commit_for_negotiation
 
@@ -30,7 +30,7 @@ let parents_of_commit t hash =
     Git_store.is_shallowed t hash >>= function
     | false -> Lwt.return (Git_store.Commit.parents commit)
     | true -> Lwt.return []
-  end
+    end
   | _ -> Lwt.return []
 
 let parents ((t, _mem) as store) hash =

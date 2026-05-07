@@ -192,14 +192,14 @@ let get_uncommon_objects =
     let q = Queue.create () in
     let rec go () =
       match Queue.pop q with
-      | uid -> begin
-        match Hashtbl.find tbl uid with
+      | uid ->
+        begin match Hashtbl.find tbl uid with
         | Some (Node value as node) ->
           value.color <- color;
           List.iter (fun uid -> Queue.push uid q) (preds node);
           go ()
         | None | (exception Not_found) -> go ()
-      end
+        end
       | exception Queue.Empty -> ()
     in
     List.iter (fun uid -> Queue.push uid q) (preds node);

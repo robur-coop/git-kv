@@ -42,7 +42,7 @@ let pred t h =
     | false ->
       `Tree_root (Git_store.Commit.tree c)
       :: List.map (fun x -> `Commit x) (Git_store.Commit.parents c)
-  end
+    end
   | Git_store.Object.Tag t -> Lwt.return [tag t]
   | Git_store.Object.Tree t ->
     let lst =
