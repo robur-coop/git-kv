@@ -16,7 +16,7 @@
  *)
 
 type tz_offset = {sign: [ `Plus | `Minus ]; hours: int; minutes: int}
-type t = {name: string; email: string; date: int64 * tz_offset option}
+type t = {name: string; email: string; date: int * tz_offset option}
 
 let pp_sign ppf = function
   | `Plus -> Fmt.pf ppf "`Plus"
@@ -28,7 +28,7 @@ let pp_tz_offset ppf {sign; hours; minutes} =
 
 let pp ppf {name; email; date= n, tz_offset} =
   Fmt.pf ppf "{ @[<hov>name = %s;@ email = %s;@ date = %a;@] }" name email
-    (Fmt.hvbox (Fmt.pair Fmt.int64 (Fmt.option pp_tz_offset)))
+    (Fmt.hvbox (Fmt.pair Fmt.int (Fmt.option pp_tz_offset)))
     (n, tz_offset)
 
 let tz_offset =
@@ -77,6 +77,9 @@ let chop =
 
 let safe_exn f x = try f x with _ -> raise Encore.Bij.Bijection
 
+let int =
+  Encore.Bij.v ~fwd:(safe_exn int_of_string) ~bwd:(safe_exn string_of_int)
+
 let int64 =
   Encore.Bij.v ~fwd:(safe_exn Int64.of_string) ~bwd:(safe_exn Int64.to_string)
 
@@ -86,7 +89,7 @@ let format =
   <$> (chop
       <$> (while1 is_not_lt <* (Encore.Bij.char '<' <$> any))
       <*> (while0 is_not_gt <* (Encore.Bij.string "> " <$> const "> "))
-      <*> (int64 <$> while1 is_digit <* (Encore.Bij.char ' ' <$> any))
+      <*> (int <$> while1 is_digit <* (Encore.Bij.char ' ' <$> any))
       <*> date)
 
 let length t =
@@ -99,7 +102,7 @@ let length t =
   + string t.email
   + 1L
   + 1L
-  + string (Int64.to_string (fst t.date))
+  + string (string_of_int (fst t.date))
   + 1L
   + tz_offset_length
 

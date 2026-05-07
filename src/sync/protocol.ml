@@ -131,7 +131,7 @@ module Want = struct
   type ('uid, 'reference) t = {
     wants: 'uid * 'uid list;
     shallows: 'uid list;
-    deepen: [ `Depth of int | `Timestamp of int64 | `Not of 'reference ] option;
+    deepen: [ `Depth of int | `Timestamp of int | `Not of 'reference ] option;
     filter: Filter.t option;
     capabilities: Capability.t list;
   }
@@ -142,7 +142,7 @@ module Want = struct
 
   let pp_deepen ppf = function
     | `Depth n -> Fmt.pf ppf "@[<1>(`Depth %d)@]" n
-    | `Timestamp v -> Fmt.pf ppf "@[<1>(`Timestamp %Ld)@]" v
+    | `Timestamp v -> Fmt.pf ppf "@[<1>(`Timestamp %d)@]" v
     | `Not reference -> Fmt.pf ppf "@[<1>(`Not %S)@]" reference
 
   let equal_deepen ~reference a b =
@@ -987,7 +987,7 @@ module Encoder = struct
         let timestamp encoder =
           write encoder "deepen-since";
           write_space encoder;
-          write encoder (Int64.to_string timestamp)
+          write encoder (string_of_int timestamp)
         in
         delayed_write_pkt timestamp filter encoder
       | Some (`Not reference) ->

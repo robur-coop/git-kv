@@ -11,7 +11,7 @@ type ('k, 'p, 't) psq =
 type t =
   | State : {
       mutable rev_list: 'psq;
-      psq: (SHA1.t, SHA1.t * int ref * int64, 'psq) psq;
+      psq: (SHA1.t, SHA1.t * int ref * int, 'psq) psq;
       mutable non_common_revs: int;
     }
       -> t
@@ -29,9 +29,9 @@ let make =
     let compare = compare
   end in
   let module P = struct
-    type t = SHA1.t * int ref * int64
+    type t = SHA1.t * int ref * int
 
-    let compare (_, _, a) (_, _, b) = Int64.compare b a
+    let compare (_, _, a) (_, _, b) = Int.compare b a
   end in
   let module Psq = Psq.Make (K) (P) in
   let rev_list = Psq.empty in

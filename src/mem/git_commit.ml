@@ -202,7 +202,7 @@ let message {message; _} = message
 let extra {extra; _} = extra
 
 let compare_by_date a b =
-  Int64.compare (fst a.author.Git_user.date) (fst b.author.Git_user.date)
+  Int.compare (fst a.author.Git_user.date) (fst b.author.Git_user.date)
 
 let compare = compare_by_date
 

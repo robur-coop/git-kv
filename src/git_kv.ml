@@ -416,7 +416,7 @@ let last_modified t key =
     let secs, _tz_offset = author.Git_store.User.date in
     let ts =
       Option.fold ~none:Ptime.epoch ~some:Fun.id
-        (Ptime.of_float_s (Int64.to_float secs))
+        (Ptime.of_span (Ptime.Span.of_int_s secs))
     in
     Lwt.return_ok ts
 
@@ -435,9 +435,8 @@ let size t key =
 
 let author ?(name = "Git KV") ?(email = "git-noreply@robur.coop") () =
   let date =
-    ( Int64.of_int
-        (Option.value ~default:0
-           (Ptime.Span.to_int_s (Ptime.to_span (Mirage_ptime.now ())))),
+    ( Option.value ~default:0
+        (Ptime.Span.to_int_s (Ptime.to_span (Mirage_ptime.now ()))),
       None )
   in
   {Git_store.User.name; email; date}
@@ -499,7 +498,7 @@ let tree_root_hash_of_store t =
       let author = Git_store.Commit.author commit in
       (* we don't adjust for tz_offset because ptime is in UTC *)
       let secs, _tz_offset = author.Git_store.User.date in
-      let ts = Ptime.of_float_s (Int64.to_float secs) in
+      let ts = Ptime.of_span (Ptime.Span.of_int_s secs) in
       Lwt.return_ok (ts, Git_store.Commit.tree commit)
     | _ ->
       Lwt.return_error
