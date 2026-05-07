@@ -417,18 +417,8 @@ let last_modified t key =
     let r = Git_store.read_exn t.store head in
     let[@warning "-8"] (Git_store.Object.Commit c) = r in
     let author = Git_store.Commit.author c in
-    let secs, tz_offset = author.Git_store.User.date in
-    let secs =
-      Option.fold ~none:secs
-        ~some:(fun {Git_store.User.sign; hours; minutes} ->
-          let tz_off =
-            Int64.(mul (add (mul (of_int hours) 60L) (of_int minutes)) 60L)
-          in
-          match sign with
-          | `Plus -> Int64.(sub secs tz_off)
-          | `Minus -> Int64.(add secs tz_off))
-        tz_offset
-    in
+    (* we don't adjust for tz_offset because ptime is in UTC *)
+    let secs, _tz_offset = author.Git_store.User.date in
     let ts =
       Option.fold ~none:Ptime.epoch ~some:Fun.id
         (Ptime.of_float_s (Int64.to_float secs))
@@ -507,18 +497,8 @@ let tree_root_hash_of_store t =
     match Git_store.read_exn t.store commit with
     | Git_store.Object.Commit commit ->
       let author = Git_store.Commit.author commit in
-      let secs, tz_offset = author.Git_store.User.date in
-      let secs =
-        Option.fold ~none:secs
-          ~some:(fun {Git_store.User.sign; hours; minutes} ->
-            let tz_off =
-              Int64.(mul (add (mul (of_int hours) 60L) (of_int minutes)) 60L)
-            in
-            match sign with
-            | `Plus -> Int64.(sub secs tz_off)
-            | `Minus -> Int64.(add secs tz_off))
-          tz_offset
-      in
+      (* we don't adjust for tz_offset because ptime is in UTC *)
+      let secs, _tz_offset = author.Git_store.User.date in
       let ts = Ptime.of_float_s (Int64.to_float secs) in
       Lwt.return_ok (ts, Git_store.Commit.tree commit)
     | _ ->
