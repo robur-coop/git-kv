@@ -319,8 +319,6 @@ let pp_write_error ppf = function
   | (`Reference_not_found _ | `Msg _) as err -> Git_store.pp_error ppf err
   | `Hash_not_found hash -> Git_store.pp_error ppf (`Not_found hash)
 
-let now () = Int64.of_float (Ptime.to_float_s (Mirage_ptime.now ()))
-
 let find_blob t key =
   match t.committed, t.head with
   | None, None -> Lwt.return None
@@ -407,10 +405,7 @@ let last_modified t key =
   match t.committed, t.head with
   | None, None -> Lwt.return (Error (`Not_found key))
   | Some (Some ts, _), _ -> Lwt.return_ok ts
-  | Some (None, _), _ ->
-    Lwt.return_ok
-      (Option.fold ~none:Ptime.epoch ~some:Fun.id
-         (Ptime.of_float_s (Int64.to_float (now ()))))
+  | Some (None, _), _ -> Lwt.return_ok (Mirage_ptime.now ())
   | None, Some head ->
     (* See https://github.com/ocaml/ocaml/issues/9301 why we have the
        intermediate [r] value. *)
@@ -438,8 +433,14 @@ let size t key =
   let open Lwt_result.Infix in
   get t key >|= fun data -> Optint.Int63.of_int (String.length data)
 
-let author ?(name = "Git KV") ?(email = "git-noreply@robur.coop") now =
-  {Git_store.User.name; email; date= now (), None}
+let author ?(name = "Git KV") ?(email = "git-noreply@robur.coop") () =
+  let date =
+    ( Int64.of_int
+        (Option.value ~default:0
+           (Ptime.Span.to_int_s (Ptime.to_span (Mirage_ptime.now ())))),
+      None )
+  in
+  {Git_store.User.name; email; date}
 
 let rec unroll_tree t ~tree_root_hash (pred_perm, pred_name, pred_hash) rpath =
   let open Lwt.Infix in
@@ -530,8 +531,8 @@ let set_with_permissions ?and_commit t key (perm, contents) =
       t.committed <- Some (ts, tree_root_hash);
       Lwt.return_ok ()
     | None ->
-      let committer = author now in
-      let author = author now in
+      let committer = author () in
+      let author = author () in
       let action =
         Option.fold ~none:(`Create t.branch)
           ~some:(fun _ -> `Update (t.branch, t.branch))
@@ -602,8 +603,8 @@ let remove ?and_commit t key =
       t.committed <- Some (ts, tree_root_hash);
       Lwt.return_ok ()
     | None ->
-      let committer = author now in
-      let author = author now in
+      let committer = author () in
+      let author = author () in
       let parents = Option.to_list t.head in
       let commit =
         Git_store.Commit.make ~tree:tree_root_hash ~author ~committer ~parents
@@ -648,8 +649,8 @@ let remove ?and_commit t key =
           t.committed <- Some (ts, tree_root_hash);
           Lwt.return_ok ()
         | None ->
-          let committer = author now in
-          let author = author now in
+          let committer = author () in
+          let author = author () in
           let parents = Option.to_list t.head in
           let commit =
             Git_store.Commit.make ~tree:tree_root_hash ~author ~committer
@@ -726,7 +727,7 @@ let change_and_push
                t.head
            in
            let parents = Option.to_list t.head in
-           let author = author ?name ?email now in
+           let author = author ?name ?email () in
            let committer = author in
            let commit =
              Git_store.Commit.make ~tree:new_tree_root_hash ~author ~committer
