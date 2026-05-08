@@ -1,3 +1,8 @@
+# v0.2.2 2026-05-08 - Vig (Denmark)
+
+- Do not (incorrectly!) adjust for timezone (@hannesm, @reynir, !20)
+- Internally, avoid float, int64 for timestamps, and use int (@hannesm, !20)
+
 # v0.2.1 2026-01-26 - Paris (France)
 
 - Align dev-repo on our OPAM file (@hannesm, 910339a)
