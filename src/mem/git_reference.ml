@@ -125,8 +125,8 @@ module Packed = struct
       let* line = input_line fd in
       match line with
       | Some "" -> go acc
-      | Some line -> begin
-        match line.[0] with
+      | Some line ->
+        begin match line.[0] with
         | '#' -> go acc
         | '^' ->
           let uid = String.sub line 1 (String.length line - 1) in
@@ -139,7 +139,7 @@ module Packed = struct
             let reference = v (String.concat " " reference) in
             let uid = of_hex uid in
             go (Ref (reference, uid) :: acc))
-      end
+        end
       | None -> Lwt.return (List.rev acc)
     in
     go []
@@ -190,38 +190,38 @@ let reword_error f = function Ok _ as o -> o | Error err -> Error (f err)
 let contents _store str =
   match SHA1.of_hex_opt (String.trim str) with
   | Some uid -> Uid uid
-  | None -> begin
-    match String.split_on_char ' ' str with
+  | None ->
+    begin match String.split_on_char ' ' str with
     | _ref :: value -> Ref (v (String.concat " " value))
     | _ -> Fmt.invalid_arg "Invalid reference contents: %S" str
-  end
+    end
 
 let resolve t store reference =
   let rec go visited reference =
     let res = Hashtbl.find_opt t.expanded reference in
     match res with
-    | None -> begin
-      match Packed.get reference store.packed with
+    | None ->
+      begin match Packed.get reference store.packed with
       | Some uid -> Lwt.return (Ok uid)
       | None -> Lwt.return (Error (`Not_found reference))
-    end
-    | Some str -> begin
-      match contents store str with
+      end
+    | Some str ->
+      begin match contents store str with
       | Uid uid -> Lwt.return (Ok uid)
       | Ref reference ->
         if List.exists (equal reference) visited then Lwt.return (Error `Cycle)
         else go (reference :: visited) reference
-    end
+      end
   in
   go [reference] reference
 
 let read t store reference =
   match Hashtbl.find_opt t.expanded reference with
-  | None -> begin
-    match Packed.get reference store.packed with
+  | None ->
+    begin match Packed.get reference store.packed with
     | Some uid -> Lwt.return (Ok (Uid uid))
     | None -> Lwt.return (Error (`Not_found reference))
-  end
+    end
   | Some str -> Lwt.return (Ok (contents store str))
 
 let write t reference contents =

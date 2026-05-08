@@ -260,10 +260,10 @@ let repl store fd_in =
       go store0
     | ["rename"; key; key'] ->
       (match Mirage_kv.Key.v key, Mirage_kv.Key.v key' with
-      | key, key' -> rename ~quiet:false store0 key key'
-      | exception _ ->
-        Fmt.epr "Invalid key: %S or %S\n%!" key key';
-        Lwt.return (Ok 1))
+        | key, key' -> rename ~quiet:false store0 key key'
+        | exception _ ->
+          Fmt.epr "Invalid key: %S or %S\n%!" key key';
+          Lwt.return (Ok 1))
       >|= ignore
       >>= fun () -> go store0
     | ["list"; key] ->
@@ -285,7 +285,7 @@ let repl store fd_in =
     | ["fold"] ->
       Git_kv.change_and_push store0 (fun store1 -> go store1)
       >|= Result.fold ~ok:Fun.id ~error:(function `Msg msg ->
-              Fmt.epr "%s.\n%!" msg)
+          Fmt.epr "%s.\n%!" msg)
       >>= fun () -> go store0
     | ["save"; filename] ->
       save store0 filename >|= ignore >>= fun _ ->

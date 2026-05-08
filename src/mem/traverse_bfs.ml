@@ -76,7 +76,7 @@ module Make (Store : S) = struct
               List.iter (fun x -> Queue.add x queue) (Git_commit.parents commit);
               fn acc ~length:(Git_commit.length commit) hash value
               >>= fun acc' -> walk close' rest' queue acc'
-          end
+            end
           | Git_object.Tree tree as value ->
             let path = try Hashtbl.find names hash with Not_found -> path in
             Lwt_list.iter_s

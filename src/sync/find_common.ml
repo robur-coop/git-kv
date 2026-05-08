@@ -68,7 +68,7 @@ let find_common
     ((store, _mem) as t)
     negotiator
     ctx
-    ?(deepen : [ `Depth of int | `Timestamp of int64 ] option)
+    ?(deepen : [ `Depth of int | `Timestamp of int ] option)
     refs =
   let open Lwt.Infix in
   let {stateless; no_done; _} = cfg in
@@ -95,15 +95,15 @@ let find_common
         let {Smart.Context.my_caps; _} = Smart.Context.capabilities ctx in
         let deepen =
           (deepen
-            :> [ `Depth of int | `Not of string | `Timestamp of int64 ] option)
+            :> [ `Depth of int | `Not of string | `Timestamp of int ] option)
         in
         send ctx send_want
           (Want.v ~capabilities:my_caps ~shallows:shallowed ?deepen
              (uid :: others)))
     >>= fun () ->
     (match deepen with
-    | None -> Lwt.return ()
-    | Some _ -> handle_shallow flow store ctx)
+      | None -> Lwt.return ()
+      | Some _ -> handle_shallow flow store ctx)
     >>= fun () ->
     let in_vain = ref 0 in
     let count = ref 0 in

@@ -21,7 +21,7 @@ let tag = Tag
 type t =
   | Node : {
       mutable color: color;
-      ts: int64 option;
+      ts: int option;
       uid: SHA1.t;
       kind: 'preds kind;
       preds: 'preds;
@@ -32,7 +32,7 @@ let make = fun ~kind preds ?ts uid -> Node {color= White; ts; uid; kind; preds}
 
 let compare (Node a) (Node b) =
   match a.ts, b.ts with
-  | Some a, Some b -> Int64.compare b a
+  | Some a, Some b -> Int.compare b a
   | _ -> SHA1.unsafe_compare a.uid b.uid
 
 let preds =
@@ -192,14 +192,14 @@ let get_uncommon_objects =
     let q = Queue.create () in
     let rec go () =
       match Queue.pop q with
-      | uid -> begin
-        match Hashtbl.find tbl uid with
+      | uid ->
+        begin match Hashtbl.find tbl uid with
         | Some (Node value as node) ->
           value.color <- color;
           List.iter (fun uid -> Queue.push uid q) (preds node);
           go ()
         | None | (exception Not_found) -> go ()
-      end
+        end
       | exception Queue.Empty -> ()
     in
     List.iter (fun uid -> Queue.push uid q) (preds node);

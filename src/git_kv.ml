@@ -89,15 +89,15 @@ let diff store commit0 commit1 =
 let pull t =
   let open Lwt.Infix in
   (match t.head with
-  | None -> Lwt.return (`Depth 1)
-  | Some head ->
-    let value = Git_store.read_exn t.store head in
-    let[@warning "-8"] (Git_store.Object.Commit commit) = value in
-    (* TODO(dinosaure): we should handle correctly [tz] and re-calculate the timestamp. *)
-    let {Git_store.User.date= timestamp, _tz; _} =
-      Git_store.Commit.author commit
-    in
-    Lwt.return (`Timestamp timestamp))
+    | None -> Lwt.return (`Depth 1)
+    | Some head ->
+      let value = Git_store.read_exn t.store head in
+      let[@warning "-8"] (Git_store.Object.Commit commit) = value in
+      (* TODO(dinosaure): we should handle correctly [tz] and re-calculate the timestamp. *)
+      let {Git_store.User.date= timestamp, _tz; _} =
+        Git_store.Commit.author commit
+      in
+      Lwt.return (`Timestamp timestamp))
   >>= fun deepen ->
   Git_sync.fetch ~capabilities ~ctx:t.ctx t.edn t.store ~deepen
     (`Some [t.branch, t.branch])
@@ -319,8 +319,6 @@ let pp_write_error ppf = function
   | (`Reference_not_found _ | `Msg _) as err -> Git_store.pp_error ppf err
   | `Hash_not_found hash -> Git_store.pp_error ppf (`Not_found hash)
 
-let now () = Int64.of_float (Ptime.to_float_s (Mirage_ptime.now ()))
-
 let find_blob t key =
   match t.committed, t.head with
   | None, None -> Lwt.return None
@@ -338,21 +336,21 @@ let exists t key =
     (* mirage-kv API only considers directories and values and doesn't allow
        links. So we pretend links don't exist. *)
     Lwt.return (Ok None)
-  | Some (_, tree_hash) -> begin
-    match Git_store.read_exn t.store tree_hash with
+  | Some (_, tree_hash) ->
+    begin match Git_store.read_exn t.store tree_hash with
     | Blob _ -> Lwt.return (Ok (Some `Value))
     | Tree _ | Commit _ | Tag _ -> Lwt.return (Ok (Some `Dictionary))
-  end
+    end
 
 let get_with_permissions t key =
   let open Lwt.Infix in
   find_blob t key >>= function
   | None -> Lwt.return (Error (`Not_found key))
-  | Some (perm, blob) -> begin
-    match Git_store.read_exn t.store blob with
+  | Some (perm, blob) ->
+    begin match Git_store.read_exn t.store blob with
     | Blob b -> Lwt.return_ok (perm, Git_store.Blob.to_string b)
     | _ -> Lwt.return_error (`Value_expected key)
-  end
+    end
 
 let get_with_permissions t key =
   let open Lwt.Infix in
@@ -386,8 +384,8 @@ let list t key =
   let open Lwt.Infix in
   find_blob t key >>= function
   | None -> Lwt.return (Error (`Not_found key))
-  | Some (_perm, tree) -> begin
-    match Git_store.read_exn t.store tree with
+  | Some (_perm, tree) ->
+    begin match Git_store.read_exn t.store tree with
     | Tree t ->
       let r =
         List.filter_map
@@ -401,37 +399,24 @@ let list t key =
       in
       Lwt.return (Ok r)
     | _ -> Lwt.return (Error (`Dictionary_expected key))
-  end
+    end
 
 let last_modified t key =
   match t.committed, t.head with
   | None, None -> Lwt.return (Error (`Not_found key))
   | Some (Some ts, _), _ -> Lwt.return_ok ts
-  | Some (None, _), _ ->
-    Lwt.return_ok
-      (Option.fold ~none:Ptime.epoch ~some:Fun.id
-         (Ptime.of_float_s (Int64.to_float (now ()))))
+  | Some (None, _), _ -> Lwt.return_ok (Mirage_ptime.now ())
   | None, Some head ->
     (* See https://github.com/ocaml/ocaml/issues/9301 why we have the
        intermediate [r] value. *)
     let r = Git_store.read_exn t.store head in
     let[@warning "-8"] (Git_store.Object.Commit c) = r in
     let author = Git_store.Commit.author c in
-    let secs, tz_offset = author.Git_store.User.date in
-    let secs =
-      Option.fold ~none:secs
-        ~some:(fun {Git_store.User.sign; hours; minutes} ->
-          let tz_off =
-            Int64.(mul (add (mul (of_int hours) 60L) (of_int minutes)) 60L)
-          in
-          match sign with
-          | `Plus -> Int64.(sub secs tz_off)
-          | `Minus -> Int64.(add secs tz_off))
-        tz_offset
-    in
+    (* we don't adjust for tz_offset because ptime is in UTC *)
+    let secs, _tz_offset = author.Git_store.User.date in
     let ts =
       Option.fold ~none:Ptime.epoch ~some:Fun.id
-        (Ptime.of_float_s (Int64.to_float secs))
+        (Ptime.of_span (Ptime.Span.of_int_s secs))
     in
     Lwt.return_ok ts
 
@@ -448,15 +433,20 @@ let size t key =
   let open Lwt_result.Infix in
   get t key >|= fun data -> Optint.Int63.of_int (String.length data)
 
-let author ?(name = "Git KV") ?(email = "git-noreply@robur.coop") now =
-  {Git_store.User.name; email; date= now (), None}
+let author ?(name = "Git KV") ?(email = "git-noreply@robur.coop") () =
+  let date =
+    ( Option.value ~default:0
+        (Ptime.Span.to_int_s (Ptime.to_span (Mirage_ptime.now ()))),
+      None )
+  in
+  {Git_store.User.name; email; date}
 
 let rec unroll_tree t ~tree_root_hash (pred_perm, pred_name, pred_hash) rpath =
   let open Lwt.Infix in
   let ( >>? ) = Lwt_result.bind in
   match rpath with
-  | [] -> begin
-    match Git_store.read_exn t.store tree_root_hash with
+  | [] ->
+    begin match Git_store.read_exn t.store tree_root_hash with
     | Git_store.Object.Tree tree ->
       let tree =
         let open Git_store.Tree in
@@ -465,13 +455,12 @@ let rec unroll_tree t ~tree_root_hash (pred_perm, pred_name, pred_hash) rpath =
           (remove ~name:pred_name tree)
       in
       let res = Git_store.write t.store (Git_store.Object.Tree tree) in
-      begin
-        match res with
-        | Ok hash -> Lwt.return_ok hash
-        | Error _ as err -> Lwt.return err
+      begin match res with
+      | Ok hash -> Lwt.return_ok hash
+      | Error _ as err -> Lwt.return err
       end
     | _ -> assert false
-  end
+    end
   | name :: rest -> begin
     Git_search.find t.store tree_root_hash (`Path (List.rev rpath)) >>= function
     | None ->
@@ -480,8 +469,8 @@ let rec unroll_tree t ~tree_root_hash (pred_perm, pred_name, pred_hash) rpath =
       in
       Git_store.write t.store (Git_store.Object.Tree tree) |> Lwt.return
       >>? fun hash -> unroll_tree t ~tree_root_hash (`Dir, name, hash) rest
-    | Some (_perm, tree_hash) -> begin
-      match Git_store.read_exn t.store tree_hash with
+    | Some (_perm, tree_hash) ->
+      begin match Git_store.read_exn t.store tree_hash with
       | Git_store.Object.Tree tree ->
         let tree =
           let open Git_store.Tree in
@@ -492,8 +481,8 @@ let rec unroll_tree t ~tree_root_hash (pred_perm, pred_name, pred_hash) rpath =
         Git_store.write t.store (Git_store.Object.Tree tree) |> Lwt.return
         >>? fun hash -> unroll_tree t ~tree_root_hash (`Dir, name, hash) rest
       | _ -> assert false
+      end
     end
-  end
 
 let tree_root_hash_of_store t =
   match t.committed, t.head with
@@ -503,30 +492,20 @@ let tree_root_hash_of_store t =
     let tree = Git_store.Tree.v [] in
     Git_store.write t.store (Git_store.Object.Tree tree) |> Lwt.return
     >>= fun hash -> Lwt.return_ok (None, hash)
-  | None, Some commit -> begin
-    match Git_store.read_exn t.store commit with
+  | None, Some commit ->
+    begin match Git_store.read_exn t.store commit with
     | Git_store.Object.Commit commit ->
       let author = Git_store.Commit.author commit in
-      let secs, tz_offset = author.Git_store.User.date in
-      let secs =
-        Option.fold ~none:secs
-          ~some:(fun {Git_store.User.sign; hours; minutes} ->
-            let tz_off =
-              Int64.(mul (add (mul (of_int hours) 60L) (of_int minutes)) 60L)
-            in
-            match sign with
-            | `Plus -> Int64.(sub secs tz_off)
-            | `Minus -> Int64.(add secs tz_off))
-          tz_offset
-      in
-      let ts = Ptime.of_float_s (Int64.to_float secs) in
+      (* we don't adjust for tz_offset because ptime is in UTC *)
+      let secs, _tz_offset = author.Git_store.User.date in
+      let ts = Ptime.of_span (Ptime.Span.of_int_s secs) in
       Lwt.return_ok (ts, Git_store.Commit.tree commit)
     | _ ->
       Lwt.return_error
         (`Msg
            (Fmt.str "The current HEAD value (%a) is not a commit"
               Digestif.SHA1.pp commit))
-  end
+    end
 
 let ( >>? ) = Lwt_result.bind
 
@@ -551,8 +530,8 @@ let set_with_permissions ?and_commit t key (perm, contents) =
       t.committed <- Some (ts, tree_root_hash);
       Lwt.return_ok ()
     | None ->
-      let committer = author now in
-      let author = author now in
+      let committer = author () in
+      let author = author () in
       let action =
         Option.fold ~none:(`Create t.branch)
           ~some:(fun _ -> `Update (t.branch, t.branch))
@@ -570,14 +549,14 @@ let set_with_permissions ?and_commit t key (perm, contents) =
       Lwt.Infix.(
         Git_sync.push ~capabilities ~ctx:t.ctx t.edn t.store [action]
         >|= Result.map_error (fun err ->
-                `Msg
-                  (Fmt.str "error pushing branch %a: %a" Git_store.Reference.pp
-                     t.branch Git_sync.pp_error err))
+            `Msg
+              (Fmt.str "error pushing branch %a: %a" Git_store.Reference.pp
+                 t.branch Git_sync.pp_error err))
         >>? fun () -> Git_store.shallow t.store hash >|= Result.ok)
       >>= fun () ->
       t.head <- Some hash;
       Lwt.return_ok ()
-  end
+    end
 
 let to_write_error (error : Git_store.error) =
   match error with
@@ -623,8 +602,8 @@ let remove ?and_commit t key =
       t.committed <- Some (ts, tree_root_hash);
       Lwt.return_ok ()
     | None ->
-      let committer = author now in
-      let author = author now in
+      let committer = author () in
+      let author = author () in
       let parents = Option.to_list t.head in
       let commit =
         Git_store.Commit.make ~tree:tree_root_hash ~author ~committer ~parents
@@ -638,9 +617,9 @@ let remove ?and_commit t key =
         Git_sync.push ~capabilities ~ctx:t.ctx t.edn t.store
           [`Update (t.branch, t.branch)]
         >|= Result.map_error (fun err ->
-                `Msg
-                  (Fmt.str "error pushing branch %a: %a" Git_store.Reference.pp
-                     t.branch Git_sync.pp_error err))
+            `Msg
+              (Fmt.str "error pushing branch %a: %a" Git_store.Reference.pp
+                 t.branch Git_sync.pp_error err))
         >>? fun () -> Git_store.shallow t.store hash >|= Result.ok)
       >>= fun () ->
       t.head <- Some hash;
@@ -655,9 +634,9 @@ let remove ?and_commit t key =
     in
     match res with
     | None -> Lwt.return_ok ()
-    | Some (_perm, hash) -> begin
+    | Some (_perm, hash) ->
       (* TODO: do we check perm? *)
-      match Git_store.read_exn t.store hash with
+      begin match Git_store.read_exn t.store hash with
       | Git_store.Object.Tree tree -> (
         let tree = Git_store.Tree.remove ~name tree in
         Git_store.write t.store (Git_store.Object.Tree tree) |> Lwt.return
@@ -669,8 +648,8 @@ let remove ?and_commit t key =
           t.committed <- Some (ts, tree_root_hash);
           Lwt.return_ok ()
         | None ->
-          let committer = author now in
-          let author = author now in
+          let committer = author () in
+          let author = author () in
           let parents = Option.to_list t.head in
           let commit =
             Git_store.Commit.make ~tree:tree_root_hash ~author ~committer
@@ -685,15 +664,15 @@ let remove ?and_commit t key =
             Git_sync.push ~capabilities ~ctx:t.ctx t.edn t.store
               [`Update (t.branch, t.branch)]
             >|= Result.map_error (fun err ->
-                    `Msg
-                      (Fmt.str "error pushing branch %a: %a"
-                         Git_store.Reference.pp t.branch Git_sync.pp_error err))
+                `Msg
+                  (Fmt.str "error pushing branch %a: %a" Git_store.Reference.pp
+                     t.branch Git_sync.pp_error err))
             >>? fun () -> Git_store.shallow t.store hash >|= Result.ok)
           >>= fun () ->
           t.head <- Some hash;
           Lwt.return_ok ())
       | _ -> Lwt.return_ok ()
-    end)
+      end)
 
 let remove t key =
   let open Lwt.Infix in
@@ -721,9 +700,12 @@ let change_and_push
     Lwt_mutex.with_lock t.mutex (fun () ->
         (let open Lwt_result.Infix in
          tree_root_hash_of_store t >>= fun (ts, tree_root_hash) ->
-         Log.debug (fun m -> m "Start to perform some Git operations with %a (%a)"
-           SHA1.pp tree_root_hash Fmt.(Dump.option (Ptime.pp_human ~frac_s:12 ())) ts);
-         let t' = {t with committed= Some (ts, tree_root_hash) } in
+         Log.debug (fun m ->
+             m "Start to perform some Git operations with %a (%a)" SHA1.pp
+               tree_root_hash
+               Fmt.(Dump.option (Ptime.pp_human ~frac_s:12 ()))
+               ts);
+         let t' = {t with committed= Some (ts, tree_root_hash)} in
          let ( let* ) = Lwt.bind in
          let* res = f t' in
          (* XXX(dinosaure): we assume that only [change_and_push] can reset [t.committed] to [None] and
@@ -744,7 +726,7 @@ let change_and_push
                t.head
            in
            let parents = Option.to_list t.head in
-           let author = author ?name ?email now in
+           let author = author ?name ?email () in
            let committer = author in
            let commit =
              Git_store.Commit.make ~tree:new_tree_root_hash ~author ~committer
@@ -760,15 +742,15 @@ let change_and_push
            Lwt.Infix.(
              Git_sync.push ~capabilities ~ctx:t.ctx t.edn t.store [action]
              >|= Result.map_error (fun err ->
-                     `Msg
-                       (Fmt.str "error pushing branch %a: %a"
-                          Git_store.Reference.pp t.branch Git_sync.pp_error err))
+                 `Msg
+                   (Fmt.str "error pushing branch %a: %a" Git_store.Reference.pp
+                      t.branch Git_sync.pp_error err))
              >>? fun () -> Git_store.shallow t.store hash >|= Result.ok)
            >>= fun () ->
            t.head <- Some hash;
            Lwt.return_ok res)
         >|= Result.map_error (fun err ->
-                `Msg (Fmt.str "error pushing %a" Git_store.pp_error err)))
+            `Msg (Fmt.str "error pushing %a" Git_store.pp_error err)))
 
 let rename t ~source ~dest =
   let open Lwt_result.Infix in
@@ -784,4 +766,4 @@ let rename t ~source ~dest =
     let ( let* ) = Lwt.bind in
     let* res = change_and_push t op in
     match res with Ok a -> Lwt.return a | Error _ as e -> Lwt.return e
-  end
+    end
