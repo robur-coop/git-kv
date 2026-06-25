@@ -24,6 +24,26 @@ let run_it cmd =
     Error
       (`Msg ("status not 0, but " ^ Fmt.to_to_string Bos.OS.Cmd.pp_status status))
 
+let rec wait_for_git_daemon
+    ?(port = 9419) ?(deadline = Unix.gettimeofday () +. 10.) () =
+  let sock = Unix.socket Unix.PF_INET Unix.SOCK_STREAM 0 in
+  let connected =
+    Fun.protect
+      ~finally:(fun () -> Unix.close sock)
+      (fun () ->
+        match
+          Unix.connect sock (Unix.ADDR_INET (Unix.inet_addr_loopback, port))
+        with
+        | () -> true
+        | exception Unix.Unix_error _ -> false)
+  in
+  if connected then Ok ()
+  else if Unix.gettimeofday () > deadline then
+    Error (`Msg "git daemon did not start in time")
+  else (
+    Unix.sleepf 0.1;
+    wait_for_git_daemon ~port ~deadline ())
+
 let empty_repo () =
   let* cwd = Bos.OS.Dir.current () in
   let* tmpdir = Bos.OS.Dir.tmp ~dir:cwd "git-kv-%s" in
@@ -59,20 +79,7 @@ let empty_repo () =
     in
     go ()
   in
-  let* () =
-    let lsof = Bos.Cmd.(v "lsof" % "-Pn" % "-i:9419") in
-    let wc = Bos.Cmd.(v "wc" % "-l") in
-    let rec go () =
-      let lsof_out = Bos.OS.Cmd.run_out lsof in
-      let* lsof_in = Bos.OS.Cmd.out_run_in lsof_out in
-      let wc_out = Bos.OS.Cmd.run_io wc lsof_in in
-      match Bos.OS.Cmd.out_string ~trim:true wc_out with
-      | Ok (n, (_, `Exited 0)) when int_of_string n > 1 -> Ok ()
-      | Ok _ -> go ()
-      | Error _ as err -> err
-    in
-    go ()
-  in
+  let* () = wait_for_git_daemon () in
   Ok (Fpath.basename tmpdir, String.trim pid)
 
 let kill_git pid = try Unix.kill (int_of_string pid) Sys.sigterm with _ -> ()
@@ -104,7 +111,7 @@ let read_in_change_and_push () =
     Ok ()
   with
   | Ok () -> ()
-  | Error (`Msg msg) -> print_endline ("got an error from bos: " ^ msg)
+  | Error (`Msg msg) -> Alcotest.failf "error during test setup: %s" msg
 
 let set_outside_change_and_push () =
   match
@@ -135,7 +142,7 @@ let set_outside_change_and_push () =
     Ok ()
   with
   | Ok () -> ()
-  | Error (`Msg msg) -> print_endline ("got an error from bos: " ^ msg)
+  | Error (`Msg msg) -> Alcotest.failf "error during test setup: %s" msg
 
 let remove_in_change_and_push () =
   match
@@ -168,7 +175,7 @@ let remove_in_change_and_push () =
     Ok ()
   with
   | Ok () -> ()
-  | Error (`Msg msg) -> print_endline ("got an error from bos: " ^ msg)
+  | Error (`Msg msg) -> Alcotest.failf "error during test setup: %s" msg
 
 let last_modified_in_change_and_push () =
   match
@@ -219,7 +226,7 @@ let last_modified_in_change_and_push () =
     Ok ()
   with
   | Ok () -> ()
-  | Error (`Msg msg) -> print_endline ("got an error from bos: " ^ msg)
+  | Error (`Msg msg) -> Alcotest.failf "error during test setup: %s" msg
 
 let digest_in_change_and_push () =
   match
@@ -259,7 +266,7 @@ let digest_in_change_and_push () =
     Ok ()
   with
   | Ok () -> ()
-  | Error (`Msg msg) -> print_endline ("got an error from bos: " ^ msg)
+  | Error (`Msg msg) -> Alcotest.failf "error during test setup: %s" msg
 
 let multiple_change_and_push () =
   match
@@ -356,7 +363,7 @@ let multiple_change_and_push () =
     Ok ()
   with
   | Ok () -> ()
-  | Error (`Msg msg) -> print_endline ("got an error from bos: " ^ msg)
+  | Error (`Msg msg) -> Alcotest.failf "error during test setup: %s" msg
 
 let basic_tests =
   [
