@@ -92,7 +92,7 @@ let pull t =
     | None -> Lwt.return (`Depth 1)
     | Some head ->
       let value = Git_store.read_exn t.store head in
-      let[@warning "-8"] (Git_store.Object.Commit commit) = value in
+      let[@warning "-partial-match"] (Git_store.Object.Commit commit) = value in
       (* TODO(dinosaure): we should handle correctly [tz] and re-calculate the timestamp. *)
       let {Git_store.User.date= timestamp, _tz; _} =
         Git_store.Commit.author commit
@@ -410,7 +410,7 @@ let last_modified t key =
     (* See https://github.com/ocaml/ocaml/issues/9301 why we have the
        intermediate [r] value. *)
     let r = Git_store.read_exn t.store head in
-    let[@warning "-8"] (Git_store.Object.Commit c) = r in
+    let[@warning "-partial-match"] (Git_store.Object.Commit c) = r in
     let author = Git_store.Commit.author c in
     (* we don't adjust for tz_offset because ptime is in UTC *)
     let secs, _tz_offset = author.Git_store.User.date in

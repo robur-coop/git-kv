@@ -8,7 +8,7 @@ bug-reports: "https://github.com/robur-coop/git-kv/issues"
 synopsis: "A Mirage_kv implementation using git"
 
 depends: [
-  "ocaml" {>= "4.08.0"}
+  "ocaml" {>= "4.12.0"}
   "dune" {>= "3.0.0"}
   "git-kv" {= version}
   "ca-certs-nss"
