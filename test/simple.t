@@ -21,8 +21,8 @@ Simple test of our Git Key-Value store
   > EOF
   00000000: 4865 6c6c 6f20 576f 726c 6421 0a         Hello World!.
   $ tail -c20 db.pack | hxd.xxd
-  00000000: e4b2 3437 2e7e 3d7e 8508 3912 3d87 11cd  ..47.~=~..9.=...
-  00000010: 9942 7147                                .BqG
+  00000000: fa62 0e75 0472 30de 07c2 2f17 6a20 b052  .b.u.r0.../.j .R
+  00000010: 5c72 8519                                \r..
   $ mgit git://localhost/simple db.pack <<EOF
   > get /foo
   > quit
