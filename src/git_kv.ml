@@ -110,23 +110,29 @@ let pull t =
   match data with
   | Error _ as e -> Lwt.return e
   | Ok None -> Lwt.return (Ok [])
-  | Ok (Some (_, refs)) -> (
-    match
-      List.find (fun (r, _) -> Git_store.Reference.equal r t.branch) refs
-    with
-    | _, head ->
-      Git_store.shallow t.store head >>= fun () ->
-      (* XXX(dinosaure): the shallow must be done **before** the diff. Otherwise
-         we will compare [commit0] with [commit0 <- commit1]. We want to compare
-         [commit0] and [commit1] (only). *)
-      diff t.store t.head head >>= fun diff ->
-      t.head <- Some head;
-      Lwt.return (Ok diff)
-    | exception Not_found ->
-      Lwt.return_error
-        (`Msg
-           (Fmt.str "error fetching: %a does not exist" Git_store.Reference.pp
-              t.branch)))
+  | Ok (Some (x, refs)) -> (
+    if
+      refs = []
+      && String.equal x
+           "\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000"
+    then Lwt.return (Ok [])
+    else
+      match
+        List.find (fun (r, _) -> Git_store.Reference.equal r t.branch) refs
+      with
+      | _, head ->
+        Git_store.shallow t.store head >>= fun () ->
+        (* XXX(dinosaure): the shallow must be done **before** the diff. Otherwise
+           we will compare [commit0] with [commit0 <- commit1]. We want to compare
+           [commit0] and [commit1] (only). *)
+        diff t.store t.head head >>= fun diff ->
+        t.head <- Some head;
+        Lwt.return (Ok diff)
+      | exception Not_found ->
+        Lwt.return_error
+          (`Msg
+             (Fmt.str "error fetching: %a does not exist" Git_store.Reference.pp
+                t.branch)))
 
 let connect ctx endpoint =
   let open Lwt.Infix in

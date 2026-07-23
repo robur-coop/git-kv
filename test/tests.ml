@@ -365,6 +365,21 @@ let multiple_change_and_push () =
   | Ok () -> ()
   | Error (`Msg msg) -> Alcotest.failf "error during test setup: %s" msg
 
+let pull_twice () =
+  match
+    Lwt_main.run
+      (Mirage_crypto_rng_unix.use_default ();
+       Git_net_unix.ctx (Happy_eyeballs_lwt.create ()) >>= fun ctx ->
+       Git_kv.connect ctx "https://github.com/hannesm/domain-name.git#main"
+       >>= fun t ->
+       Git_kv.pull t >>= fun r ->
+       if Result.is_error r then Alcotest.fail "failure pulling";
+       Lwt.return_unit);
+    Ok ()
+  with
+  | Ok () -> ()
+  | Error (`Msg msg) -> Alcotest.failf "error during test setup: %s" msg
+
 let basic_tests =
   [
     "Read in change_and_push", `Quick, read_in_change_and_push;
@@ -373,6 +388,7 @@ let basic_tests =
     "Last modified in change_and_push", `Quick, last_modified_in_change_and_push;
     "Digest in change_and_push", `Quick, digest_in_change_and_push;
     "Multiple change_and_push", `Quick, multiple_change_and_push;
+    "Pull twice", `Quick, pull_twice;
   ]
 
 let tests = ["Basic tests", basic_tests]
