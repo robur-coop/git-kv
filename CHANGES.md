@@ -1,3 +1,12 @@
+# v0.2.3 2026-08-03 - Paris (France)
+
+- Fix tests and remove the usage of lsof (@mtelvers, @dinosaure, [#16][g16])
+- Lint OPAM files and use warning names instead of numbers (@hannesm, [!23][23])
+- Update `git-kv` with the last version of `decompress` (@dinosaure, ef176a5)
+
+[g16]: https://github.com/robur-coop/git-kv/pull/16
+[23]: https://git.robur.coop/robur/git-kv/pulls/23
+
 # v0.2.2 2026-05-08 - Vig (Denmark)
 
 - Do not (incorrectly!) adjust for timezone (@hannesm, @reynir, !20)
