@@ -11,7 +11,7 @@ depends: [
   "ocaml" {>= "4.12.0"}
   "dune" {>= "3.0.0"}
   "git-kv" {= version}
-  "ca-certs-nss"
+  "ca-certs-nss" {>= "3.126"}
   "h1"
   "paf" {>= "0.8.0"}
   "uri"
@@ -23,6 +23,7 @@ depends: [
   "mimic-happy-eyeballs"
   "happy-eyeballs-lwt"
   "alcotest" {with-test}
+  "conf-git-daemon" {with-test}
 ]
 
 build: [
@@ -34,4 +35,4 @@ build: [
                & os-distribution != "opensuse"}
 ]
 x-maintenance-intent: [ "(latest)" ]
-x-ci-accept-failures: [ "alpine-3.21" "fedora-41" "fedora-42" "opensuse-15.6" "opensuse-tumbleweed" ]
+x-ci-accept-failures: [ "alpine-3.21" "fedora-41" "fedora-42" "opensuse-15.6" "opensuse-tumbleweed" "macos-homebrew" ]
