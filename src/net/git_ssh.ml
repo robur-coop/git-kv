@@ -3,7 +3,7 @@ open Lwt.Infix
 type endpoint = {
   port: int;
   hostname: string;
-  authenticator: Awa.Keys.authenticator option;
+  authenticator: Awa.Keys.authenticator;
   user: string;
   credentials: [ `Password of string | `Pubkey of Awa.Hostkey.priv ];
   path: string;
@@ -66,8 +66,8 @@ struct
       Happy_eyeballs.resolve happy_eyeballs edn.hostname [edn.port] >>= function
       | Error (`Msg err) -> Lwt.return_error (`Connect (`Msg err))
       | Ok ((_ipaddr, _port), flow) -> (
-        client_of_flow ?authenticator:edn.authenticator ~user:edn.user
-          edn.credentials channel_request flow
+        client_of_flow edn.authenticator ~user:edn.user edn.credentials
+          channel_request flow
         >>= function
         | Error err -> Lwt.return_error (`Connect err)
         | Ok _ as v -> Lwt.return v)
@@ -134,7 +134,7 @@ struct
             req Git_store.Endpoint.git_hostname;
             dft Git_store.Endpoint.git_port 22; req Git_store.Endpoint.git_path;
             req Git_store.Endpoint.git_capabilities; opt git_mirage_ssh_key;
-            opt git_mirage_ssh_password; opt git_mirage_ssh_authenticator;
+            opt git_mirage_ssh_password; req git_mirage_ssh_authenticator;
           ]
         ~k:k1 ctx
     in
