@@ -1,3 +1,7 @@
+# v0.2.4 2026-10-07 - Biesenthal (Germany)
+
+- Updates for awa 0.7.0 (@hannesm https://git.robur.coop/robur/git-kv/pulls/26)
+
 # v0.2.3 2026-08-03 - Paris (France)
 
 - Fix tests and remove the usage of lsof (@mtelvers, @dinosaure, [#16][g16])
