@@ -66,8 +66,8 @@ struct
       Happy_eyeballs.resolve happy_eyeballs edn.hostname [edn.port] >>= function
       | Error (`Msg err) -> Lwt.return_error (`Connect (`Msg err))
       | Ok ((_ipaddr, _port), flow) -> (
-        client_of_flow edn.authenticator ~user:edn.user
-          edn.credentials channel_request flow
+        client_of_flow edn.authenticator ~user:edn.user edn.credentials
+          channel_request flow
         >>= function
         | Error err -> Lwt.return_error (`Connect err)
         | Ok _ as v -> Lwt.return v)
