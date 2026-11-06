@@ -24,5 +24,12 @@
 (test
  (name tests)
  (package git-net)
- (libraries logs.fmt git-kv git-net.unix alcotest bos lwt.unix)
+ (libraries
+  logs.fmt
+  git-kv
+  git-net.unix
+  alcotest
+  bos
+  lwt.unix
+  mirage-crypto-rng.unix)
  (modules tests))
