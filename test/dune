@@ -32,4 +32,5 @@
   bos
   lwt.unix
   mirage-crypto-rng.unix)
- (modules tests))
+ (modules tests)
+ (action (run %{test} -q)))
