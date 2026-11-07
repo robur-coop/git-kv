@@ -388,7 +388,7 @@ let basic_tests =
     "Last modified in change_and_push", `Quick, last_modified_in_change_and_push;
     "Digest in change_and_push", `Quick, digest_in_change_and_push;
     "Multiple change_and_push", `Quick, multiple_change_and_push;
-    "Pull twice", `Quick, pull_twice;
+    "Pull twice", `Slow, pull_twice;
   ]
 
 let tests = ["Basic tests", basic_tests]
