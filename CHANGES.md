@@ -1,3 +1,9 @@
+# v0.2.5 2026-11-07 - Paris (France)
+
+- Fix when we pull a repository and nothing is new (@hannesm, @reynir, @dinosaure, [!27][27])
+
+[27]: https://git.robur.coop/robur/git-kv/pulls/27
+
 # v0.2.4 2026-10-07 - Biesenthal (Germany)
 
 - Updates for awa 0.7.0 (@hannesm https://git.robur.coop/robur/git-kv/pulls/26)
