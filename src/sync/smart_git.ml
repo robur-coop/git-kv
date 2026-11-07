@@ -212,9 +212,9 @@ let fetch
           (explode ?threads store stream)
         >>= fun (refs, idx) ->
         match refs, idx with
+        | Ok [], _ -> Lwt.return_ok `Empty
         | Ok refs, Ok uid -> Lwt.return_ok (`Pack (uid, refs))
         | (Error _ as err), _ -> Lwt.return err
-        | Ok [], _ -> Lwt.return_ok `Empty
         | Ok _refs, (Error _ as err) -> Lwt.return err)
       | Ok flow, Some _, _ ->
         Log.err (fun m -> m "The protocol version is uninmplemented.");
